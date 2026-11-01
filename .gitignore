@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node / Cloudflare
+node_modules/
+.wrangler/
+
+# Scan output and recordings
+analysis/
+clips/
+downloads/*
+!downloads/README.txt
+*.mp4
+*.mov
+*.mkv
+*.zip
+
+# Editors, OS and local tools
+.vscode/
+.idea/
+.claude/
+*.log
+.env
+.env.*
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,12 @@
+{
+  "note": "Scorestreak loadouts for live recordings. The points counter next to the HP bar shows the points still needed for the next streak; points earned in a life = that streak's cost - the counter. Add a loadout per set of streaks a recording uses (costs in points, cheapest first).",
+  "kill_points": 100,
+  "loadout": "default",
+  "loadouts": {
+    "default": [
+      {"name": "Hunter Killer", "cost": 500},
+      {"name": "Predator Missile", "cost": 700},
+      {"name": "EMP Systems", "cost": 1000}
+    ]
+  }
+}

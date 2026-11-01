@@ -1,0 +1,21 @@
+{
+  "min_kills": 3,
+  "window": null,
+  "max_gap": null,
+  "pre": 3,
+  "post": 3,
+  "interval": 0.5,
+  "scene_threshold": 0.12,
+  "minimap_threshold": 0.07,
+  "map_shift": 0.18,
+  "death_guard": 4,
+  "respawn_settle": 0.5,
+  "speed": 1.15,
+  "ramp_gap": 8,
+  "ramp_keep": 2,
+  "ramp_speed": 2.5,
+  "roi": "auto",
+  "minimap_roi": "auto",
+  "hp_roi": "auto",
+  "format": "auto"
+}
