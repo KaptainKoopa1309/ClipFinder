@@ -93,6 +93,8 @@ nav a:hover { color: var(--green-text); }
 .clips small { display: block; color: var(--muted); }
 .clips .btn { height: 2.5rem; padding: 0 1.1rem; font-size: .9rem; }
 .actions { display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap; }
+.actions .btn { height: 3.4rem; width: 13rem; }
+.note { margin: 1rem 0 0; text-align: center; font-size: .9rem; color: var(--green-text); }
 
 /* Text */
 h1 { font-size: 1.8rem; line-height: 1.25; margin: 0 0 .75rem; }

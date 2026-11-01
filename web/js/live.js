@@ -99,11 +99,15 @@ const buffers = (m) => {
   return scratch;
 };
 
-/** colours (with relative): gold, red and text masks and the row redness, from each pixel's step from its background. */
-export function colours(img) {
+/**
+ * colours (with relative): gold, red and text masks and the row redness, from each pixel's step from its background.
+ * With `all` false, the light mask and redness are skipped (locating the killfeed only needs the other three).
+ */
+export function colours(img, all = true) {
   const { w, h, c, data: D } = img, n = w * h, W = w + 1, m = W * (h + 1);
   const { sums, kept } = buffers(m);
-  const gold = new Uint8Array(n), red = new Uint8Array(n), text = new Uint8Array(n), light = new Uint8Array(n), redness = new Uint8Array(n);
+  const gold = new Uint8Array(n), red = new Uint8Array(n), text = new Uint8Array(n);
+  const light = all ? new Uint8Array(n) : null, redness = all ? new Uint8Array(n) : null;
   const y1 = new Int32Array(h), y2 = new Int32Array(h), x1 = new Int32Array(w), x2 = new Int32Array(w);
   for (let y = 0; y < h; y++) { y1[y] = Math.max(0, y - BG_HALF); y2[y] = Math.min(h, y + BG_HALF + 1); }
   for (let x = 0; x < w; x++) { x1[x] = Math.max(0, x - BG_HALF); x2[x] = Math.min(w, x + BG_HALF + 1); }
@@ -162,8 +166,10 @@ export function colours(img) {
       red[i] = R > CHROMA && R - G > CHROMA && R - B > CHROMA ? 1 : 0;
       // Text is a letter's fill (brighter than the background); its dark outline would join letters up.
       text[i] = Math.max(sB, sG, sR) > TEXT_EDGE ? 1 : 0;
-      light[i] = mean > LIGHT_EDGE && !cool ? 1 : 0;
-      redness[i] = Math.min(Math.floor(Math.max(R - Math.max(G, B), 0) * 4), 255);
+      if (all) {
+        light[i] = mean > LIGHT_EDGE && !cool ? 1 : 0;
+        redness[i] = Math.min(Math.floor(Math.max(R - Math.max(G, B), 0) * 4), 255);
+      }
     }
   }
   return { gold, red, text, light, redness };
@@ -217,7 +223,7 @@ function dropLongRuns(mask, w, y1, y2, x1, x2, length) {
 
 /** text_lines: horizontal runs of letter-sized name components. */
 export function textLines(img, minLetters = 3, stillness = null) {
-  const { gold, red, text } = colours(img), mask = new Uint8Array(gold.length), { w, h } = img;
+  const { gold, red, text } = colours(img, false), mask = new Uint8Array(gold.length), { w, h } = img;
   for (let i = 0; i < mask.length; i++) mask[i] = text[i] | gold[i] | red[i];
   dropLongRuns(mask, w, 0, h, 0, w, 30);   // a row band's edges: letters stay apart
   stillness?.add(mask, w);
@@ -700,33 +706,49 @@ export function matchTemplate(area, templ, { x0 = 0, x1 = area.w, binary = false
     sq[i] = v * v + sq[i - 1] + sq[i - W - 1] - sq[i - W - 2];
   }
   const box = (I, x, y) => I[(y + h) * (W + 1) + x + w] - I[y * (W + 1) + x + w] - I[(y + h) * (W + 1) + x] + I[y * (W + 1) + x];
-  // 0/1 area: scatter each one into the windows containing it (cost follows the ones, not the window size).
-  let ones = null, nums = null;
+  // 0/1 area: each row's ones (x positions) and running count, so a window's ones are found directly.
+  let ones = null, count = null, top = null;
   if (binary) {
-    ones = Array.from({ length: H }, (_, y) => {
-      const xs = [];
-      for (let x = 0; x < W; x++) if (A[y * AW + x0 + x]) xs.push(x);
-      return xs;
-    });
-    nums = new Float64Array(RW);
+    ones = []; count = [];
+    for (let y = 0; y < H; y++) {
+      const xs = [], c = new Int32Array(W + 1);
+      for (let x = 0; x < W; x++) {
+        c[x + 1] = c[x];
+        if (A[y * AW + x0 + x]) { xs.push(x); c[x + 1]++; }
+      }
+      ones.push(xs); count.push(c);
+    }
+    // top[ty][k]: the largest sum k ones can take from template row ty (an exact ceiling for pruning).
+    if (bound) {
+      top = [];
+      for (let ty = 0; ty < h; ty++) {
+        const sorted = Float64Array.from(T.subarray(ty * w, (ty + 1) * w)).sort().reverse(), t = new Float64Array(w + 1);
+        for (let k = 1; k <= w; k++) t[k] = t[k - 1] + sorted[k - 1];
+        top.push(t);
+      }
+    }
   }
   for (let y = 0; y < RH; y++) {
     if (rows && !rows[y]) continue;
-    if (binary) {
-      nums.fill(0);
-      for (let ty = 0; ty < h; ty++) {
-        const trow = ty * w;
-        for (const gx of ones[y + ty]) {
-          for (let x = Math.max(0, gx - w + 1), end = Math.min(RW - 1, gx); x <= end; x++) nums[x] += T[trow + gx - x];
-        }
-      }
-    }
     for (let x = 0; x < RW; x++) {
       const s = box(sum, x, y);
       if (bound && bound[Math.round(s)] < threshold - 1e-6) continue;
       let num = 0;
-      if (binary) num = nums[x];
-      else {
+      if (binary) {
+        if (top) {
+          const sd = Math.sqrt(Math.max(s - s * s / n, 0)) * tnorm;
+          if (sd > 0) {
+            let most = 0;
+            for (let ty = 0; ty < h; ty++) { const c = count[y + ty]; most += top[ty][c[x + w] - c[x]]; }
+            if (most / sd < threshold - 1e-6) continue;
+          }
+        }
+        // Same order as summing every one into its windows: template rows, then ones left to right.
+        for (let ty = 0; ty < h; ty++) {
+          const xs = ones[y + ty], c = count[y + ty], trow = ty * w - x;
+          for (let k = c[x], end = c[x + w]; k < end; k++) num += T[trow + xs[k]];
+        }
+      } else {
         for (let ty = 0; ty < h; ty++) {
           const row = (y + ty) * AW + x0 + x, trow = ty * w;
           for (let tx = 0; tx < w; tx++) num += A[row + tx] * T[trow + tx];
@@ -823,30 +845,47 @@ function trim(t, gap = 8) {
   return out;
 }
 
+/**
+ * One sample's share of name_matches ({type: 'name'}) or follow_feed ({type: 'rows'}).
+ * Run here, or spread over analyse-worker.js by worker.js; `map(indices, job)` runs it on each index.
+ */
+export function sampleWork(data, i, job) {
+  const [h, w] = data.shape, sample = data.samples[i];
+  if (job.type === 'name') return sampleNameMatches(sample, h, w, job.template, job.collect, job.side);
+  const masks = [unpack(sample.gold, h, w), sample.light ? unpack(sample.light, h, w) : { w, h, c: 1, data: new Float32Array(h * w) }];
+  return [killRows(masks, sample, job.template), deathRows(masks, sample, job.template)];
+}
+
+const runHere = (data) => async (indices, job) => indices.map((i) => sampleWork(data, i, job));
+
 /** name_matches: confident name-template matches in every `step`-th sample: their count, or the crops when `collect`. */
-function nameMatches(data, template, step, collect = false, side = 2) {
-  const [h, w] = data.shape, found = [];
+async function nameMatches(data, template, step, collect = false, side = 2, map = runHere(data)) {
+  const indices = [];
+  for (let i = 0; i < data.samples.length; i += step) if (data.samples[i].rows.length) indices.push(i);
+  const each = await map(indices, { type: 'name', template, collect, side });
+  return collect ? each.flat() : each.reduce((a, b) => a + b, 0);
+}
+
+function sampleNameMatches(sample, h, w, template, collect, side) {
+  const found = [];
   let count = 0;
-  for (let i = 0; i < data.samples.length; i += step) {
-    if (!data.samples[i].rows.length) continue;
-    const gold = unpack(data.samples[i].gold, h, w);
-    const result = matchTemplate(gold, template, { binary: true, threshold: .6, rows: bandRows(data.samples[i], h, template.h) });
-    for (let k = 0; k < 4; k++) {
-      let best = -Infinity, at = 0;
-      for (let j = 0; j < result.data.length; j++) if (result.data[j] > best) { best = result.data[j]; at = j; }
-      if (best < .6) break;
-      count++;
-      const y = Math.floor(at / result.w), x = at - y * result.w;
-      if (collect && y >= 2 && y + template.h + 2 <= h) {
-        const W2 = template.w + 2 * side, H2 = template.h + 4, m = { w: W2, h: H2, c: 1, data: new Float32Array(W2 * H2) };
-        for (let r = 0; r < H2; r++) for (let cc = 0; cc < W2; cc++) {
-          const xx = x - side + cc;
-          if (xx >= 0 && xx < w) m.data[r * W2 + cc] = gold.data[(y - 2 + r) * w + xx];
-        }
-        found.push(m);
+  const gold = unpack(sample.gold, h, w);
+  const result = matchTemplate(gold, template, { binary: true, threshold: .6, rows: bandRows(sample, h, template.h) });
+  for (let k = 0; k < 4; k++) {
+    let best = -Infinity, at = 0;
+    for (let j = 0; j < result.data.length; j++) if (result.data[j] > best) { best = result.data[j]; at = j; }
+    if (best < .6) break;
+    count++;
+    const y = Math.floor(at / result.w), x = at - y * result.w;
+    if (collect && y >= 2 && y + template.h + 2 <= h) {
+      const W2 = template.w + 2 * side, H2 = template.h + 4, m = { w: W2, h: H2, c: 1, data: new Float32Array(W2 * H2) };
+      for (let r = 0; r < H2; r++) for (let cc = 0; cc < W2; cc++) {
+        const xx = x - side + cc;
+        if (xx >= 0 && xx < w) m.data[r * W2 + cc] = gold.data[(y - 2 + r) * w + xx];
       }
-      for (let r = Math.max(0, y - 15); r < Math.min(result.h, y + 15); r++) result.data.fill(-1, r * result.w, (r + 1) * result.w);
+      found.push(m);
     }
+    for (let r = Math.max(0, y - 15); r < Math.min(result.h, y + 15); r++) result.data.fill(-1, r * result.w, (r + 1) * result.w);
   }
   return collect ? found : count;
 }
@@ -858,7 +897,7 @@ function contains(big, small) {
 }
 
 /** learn_name: the commonest gold killfeed word that matches the most rows. */
-export function learnName(data, step = 2, candidates = 5, check = 6) {
+export async function learnName(data, map = runHere(data), step = 2, candidates = 5, check = 6) {
   const [h, w] = data.shape, n = data.samples.length;
   let crops = [];
   for (let i = 0; i < n; i += step) {
@@ -887,17 +926,17 @@ export function learnName(data, step = 2, candidates = 5, check = 6) {
     if (seeds.length === candidates) break;
     if (!seeds.some((j) => dot(flat[k], flat[j]) > .75)) seeds.push(k);
   }
-  const found = seeds.map((seed) => {
+  const found = await Promise.all(seeds.map(async (seed) => {
     let template = crops[seed];
     for (let k = 0; k < 4; k++) template = meanOf(crops.filter((c) => matchTemplateBest(c, template).score > .6));
     template = trim(template);
-    return [template, nameMatches(data, template, check)];
-  });
+    return [template, await nameMatches(data, template, check, false, 2, map)];
+  }));
   const totals = found.map(([big]) => found.reduce((a, [t, hits]) => a + (t === big || contains(big, t) ? hits : 0), 0));
   let template = found[totals.indexOf(Math.max(...totals))][0];
-  const wide = nameMatches(data, template, step, true, 40);
+  const wide = await nameMatches(data, template, step, true, 40, map);
   if (wide.length >= 3) template = trim(meanOf(wide));
-  const matches = nameMatches(data, template, step, true);
+  const matches = await nameMatches(data, template, step, true, 2, map);
   return matches.length >= 3 ? trim(meanOf(matches)) : template;
 }
 
@@ -1074,15 +1113,16 @@ export class RowTracker {
 export const isAway = (r, P) => r.killcam >= P.away_score || r.killed_by >= P.away_score || r.spectate >= P.spectate_lit;
 
 /** follow_feed: times the followed player's kill rows and death rows first appear. */
-export function followFeed(scan, data, template, P) {
-  const [h, w] = data.shape, kills = new RowTracker(scan.feed.read_pitch), deaths = new RowTracker(scan.feed.read_pitch);
+export async function followFeed(scan, data, template, P, map = runHere(data)) {
+  const kills = new RowTracker(scan.feed.read_pitch), deaths = new RowTracker(scan.feed.read_pitch);
+  const away = (r) => isAway(r, P) || r.blank;
+  const todo = scan.readings.flatMap((r, i) => (away(r) || !data.samples[i].rows.length ? [] : [i]));
+  const found = await map(todo, { type: 'rows', template }), rows = new Map(todo.map((i, k) => [i, found[k]]));
   scan.readings.forEach((r, i) => {
-    if (isAway(r, P) || r.blank) { kills.away(); deaths.away(); return; }
-    const sample = data.samples[i];
-    if (!sample.rows.length) { kills.feed(r.time, []); deaths.feed(r.time, []); return; }
-    const masks = [unpack(sample.gold, h, w), sample.light ? unpack(sample.light, h, w) : { w, h, c: 1, data: new Float32Array(h * w) }];
-    kills.feed(r.time, killRows(masks, sample, template));
-    deaths.feed(r.time, deathRows(masks, sample, template));
+    if (away(r)) { kills.away(); deaths.away(); return; }
+    const [killed, died] = rows.get(i) ?? [[], []];
+    kills.feed(r.time, killed);
+    deaths.feed(r.time, died);
   });
   return { kills: kills.events, feedDeaths: deaths.events };
 }

@@ -143,6 +143,42 @@ function makePool(file, n, mode, software) {
   };
 }
 
+/** Workers (analyse-worker.js) sharing the killfeed matching after a live scan; map(indices, job) as live.js expects. */
+function analysisPool(data) {
+  const mobile = navigator.userAgentData?.mobile ?? /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+  const n = Math.min((navigator.hardwareConcurrency || 2) - 1, mobile ? 4 : 8);
+  if (n < 2 || data.samples.length < 2 * n) return null;
+  const size = Math.ceil(data.samples.length / n), waiting = new Map();
+  let nextId = 0;
+  const workers = Array.from({ length: n }, (_, k) => {
+    const worker = new Worker(new URL('./analyse-worker.js', import.meta.url), { type: 'module' });
+    worker.onmessage = ({ data: reply }) => {
+      const { resolve, reject } = waiting.get(reply.id);
+      waiting.delete(reply.id);
+      if (reply.error) reject(new Error(reply.error));
+      else resolve(reply.out);
+    };
+    worker.onerror = (e) => waiting.forEach(({ reject }) => reject(new Error(e.message || 'An analysis worker failed.')));
+    worker.postMessage({ type: 'load', shape: data.shape, offset: k * size, samples: data.samples.slice(k * size, (k + 1) * size) });
+    return worker;
+  });
+  const run = (worker, indices, job) => new Promise((resolve, reject) => {
+    const id = nextId++;
+    waiting.set(id, { resolve, reject });
+    worker.postMessage({ type: 'work', id, indices, job });
+  });
+  return {
+    n,
+    async map(indices, job) {
+      const parts = workers.map(() => []);
+      for (const i of indices) parts[Math.floor(i / size)].push(i);
+      const out = await Promise.all(workers.map((w, k) => (parts[k].length ? run(w, parts[k], job) : [])));
+      return out.flat();
+    },
+    close() { workers.forEach((w) => w.terminate()); },
+  };
+}
+
 /** main.scan_live_video + finish_live: find the killfeed, scan, learn the player's name, follow it. */
 async function runLive(v, rules, capture, timings, lap, file, parts, software) {
   const P = await loadLiveProfile(new URL('../', import.meta.url));
@@ -186,8 +222,15 @@ async function scanInParts(pool, v, feed, P) {
 async function finishLive(v, rules, timings, lap, P, feed, result, data) {
   if (stopRequested) log(`Stopped at ${result.duration.toFixed(1)} s; results cover the part scanned.`);
   send('phase', { phase: 'following the killfeed' });
-  const template = learnName(data);
-  const { kills: feedKills, feedDeaths } = followFeed(result, data, template, P);
+  const pool = analysisPool(data);
+  let template, feedKills, feedDeaths;
+  try {
+    template = await learnName(data, pool?.map);
+    ({ kills: feedKills, feedDeaths } = await followFeed(result, data, template, P, pool?.map));
+  } finally {
+    pool?.close();
+  }
+  lap('follow');
   const deaths = deathTimes(result.readings, feedDeaths, P);
   const counter = counterKills(result.readings, P.streaks, P), popups = popupEvents(result.readings, P).reduce((a, [, n]) => a + n, 0);
   const kills = fuseKills(result.readings, feedKills, deaths, P.streaks, P);
