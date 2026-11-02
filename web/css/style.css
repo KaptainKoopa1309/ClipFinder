@@ -86,6 +86,21 @@ nav a:hover { color: var(--green-text); }
 
 /* Results */
 .message { text-align: center; margin: 0 0 1.25rem; font-weight: 500; }
+.queue { text-align: center; margin: 0 0 1rem; font-weight: 500; overflow-wrap: anywhere; }
+/* One collapsible section per recording. */
+.videos { display: grid; gap: .75rem; margin: 0 0 1.25rem; }
+.video { border: 1px solid var(--line); border-radius: 8px; }
+.video[open] { border-color: var(--green-dark); }
+.video > summary { display: flex; align-items: center; gap: .75rem; padding: .8rem 1rem; cursor: pointer; list-style: none; }
+.video > summary::-webkit-details-marker { display: none; }
+.video > summary::before { content: "▸"; color: var(--green); font-size: 1.1rem; }
+.video[open] > summary::before { content: "▾"; }
+.video > summary:hover { background: var(--surface-hover); border-radius: 8px; }
+.video-title { min-width: 0; }
+.video-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.video-info { display: block; color: var(--muted); font-size: .9rem; }
+.video-body { padding: .5rem 1rem 1rem; }
+.video-body .actions { margin-bottom: 0; }
 .stats { margin: 0 0 1.25rem; }
 .totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: .75rem; }
 .totals div { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: .7rem; text-align: center; }

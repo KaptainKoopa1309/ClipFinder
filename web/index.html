@@ -20,7 +20,7 @@
   <section class="tool" id="chooseView">
     <div class="row">
       <label class="pick" id="pick">
-        <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/*">
+        <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/*" multiple>
         <span id="pickText">Select Match Recording</span>
       </label>
       <button class="btn" id="findBtn" type="button" disabled>Find clips</button>
@@ -46,6 +46,7 @@
 
   <!-- Step 2: scanning -->
   <section class="tool" id="scanView" hidden>
+    <p class="queue" id="queueText" hidden></p>
     <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><i id="barFill"></i></div>
     <div class="status">
       <span aria-live="polite"><span id="statusText">Calibrating Recording</span><small id="etaText"></small></span>
@@ -57,28 +58,40 @@
   <!-- Step 3: results -->
   <section class="tool" id="resultsView" hidden>
     <p class="message" id="resultText"></p>
-    <div class="stats" id="stats" hidden>
-      <div class="totals">
-        <div><strong id="killCount">0</strong><span>Kills found</span></div>
-        <div id="deathBox"><strong id="deathCount">0</strong><span>Deaths found</span></div>
-      </div>
-      <p class="hint">Compare these with your match scoreboard. If they’re far off, some clips may be wrong.</p>
-      <details>
-        <summary>Show when each kill and death happened</summary>
-        <p class="times-label">Kills</p>
-        <p class="times" id="killTimes"></p>
-        <div id="deathList">
-          <p class="times-label">Deaths</p>
-          <p class="times" id="deathTimes"></p>
-        </div>
-      </details>
-    </div>
-    <ul class="clips" id="clips"></ul>
+    <div class="videos" id="videos"></div>
     <div class="actions">
-      <button class="btn" id="allBtn" type="button">Download all</button>
+      <button class="btn" id="allBtn" type="button">Download everything</button>
       <button class="btn plain" id="againBtn" type="button">Scan another</button>
     </div>
   </section>
+
+  <!-- One recording's results, filled in by app.js. -->
+  <template id="videoTemplate">
+    <details class="video">
+      <summary><span class="video-title"><strong class="video-name"></strong><small class="video-info"></small></span></summary>
+      <div class="video-body">
+        <p class="message"></p>
+        <div class="stats" hidden>
+          <div class="totals">
+            <div><strong class="kill-count">0</strong><span>Kills found</span></div>
+            <div class="death-box"><strong class="death-count">0</strong><span>Deaths found</span></div>
+          </div>
+          <p class="hint">Compare these with your match scoreboard. If they’re far off, some clips may be wrong.</p>
+          <details>
+            <summary>Show when each kill and death happened</summary>
+            <p class="times-label">Kills</p>
+            <p class="times kill-times"></p>
+            <div class="death-list">
+              <p class="times-label">Deaths</p>
+              <p class="times death-times"></p>
+            </div>
+          </details>
+        </div>
+        <ul class="clips"></ul>
+        <div class="actions"><button class="btn video-all" type="button">Download all</button></div>
+      </div>
+    </details>
+  </template>
 
   <div class="info">
     <h1>Find your Call Of Duty Mobile Multiplayer clips</h1>
@@ -86,15 +99,16 @@
 
     <h2 id="how">How to find your clips</h2>
     <ol>
-      <li>Click on “Select Match Recording” and pick your Multiplayer(MP) video recording .</li>
-      <li>Choose how it was recorded: a live match recording or a replay mode recording.</li>
+      <li>Click on “Select Match Recording” and pick your Multiplayer(MP) video recording. You can pick several recordings at once.</li>
+      <li>Choose how it was recorded: a live match recording or a replay mode recording. When you pick several, they all need to be the same type.</li>
       <li>Pick the minimum number of kills a clip needs. For example: selecting 4 will find all the clips with 4 kills or more.</li>
-      <li>Click “Find clips” and keep this page open while it scans. When it’s done, you can view each clip in a preview window and download the ones you want.</li>
+      <li>Click “Find clips” and keep this page open while it scans. When it’s done, each recording gets its own section with its clips: open a section to view each clip in a preview window and download the ones you want.</li>
     </ol>
 
     <h2>Notes</h2>
     <ul>
       <li>Works fastest/best in Chrome or Edge.</li>
+      <li>Several recordings are scanned one after another, so the scan takes as long as scanning each of them on its own.</li>
       <li>Clips are cut from your original video, so they keep its original quality.</li>
       <li>Clips are listed in order of a "score" assigned to them, prioritizing high kills done in a short amount.</li>
       <li>The reader may misread or miss kills here and there and is *NOT* 100% accurate, incase you run into any such misreadings or are unable to calibrate your recordings, reach out to me in the Contact section.</li>

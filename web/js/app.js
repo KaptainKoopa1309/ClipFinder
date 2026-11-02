@@ -1,8 +1,10 @@
-// Page logic: pick a recording, scan it in worker.js, show progress, then preview and save the clips.
+// Page logic: pick one or more recordings, scan each in turn in worker.js, show progress, then preview and save the clips.
 
 // Every message the page shows while it runs. Edit the wording here.
 const TEXT = {
   pick: 'Select Match Recording',
+  picked: (n) => `${n} recordings selected`,
+  queue: (i, n, name) => `Recording ${i} of ${n}: ${name}`,
   unsupported: 'This browser can’t scan videos. Please use a recent Chrome or Edge.',
   starting: 'Calibrating Video',
   scanning: (pct) => `Analyzing Video ${pct}%`,
@@ -21,6 +23,9 @@ const TEXT = {
   badCodec: 'This browser can’t read this video’s format. Try a different browser.',
   failed: 'This video couldn’t be read. Check it’s an MP4 match recording and try again.',
   noTimes: 'None found',
+  videoInfo: (clips, kills) => `${clips === 1 ? '1 clip' : `${clips} clips`}, ${kills === 1 ? '1 kill' : `${kills} kills`} found`,
+  videoFailed: 'Couldn’t be scanned',
+  scanned: (n, clips) => `${n} recordings scanned, ${clips === 1 ? '1 clip' : `${clips} clips`} found. Open a recording to see its clips.`,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -29,7 +34,8 @@ const PHASES = { calibrating: [0, .05], scanning: [.05, .9], 'match end': [.9, .
 const CUTTING = [.92, 1];
 
 // The page state, also reachable from the browser console as window.clipsFinder.
-const state = { file: null, worker: null, run: null, clips: [], wakeLock: null };
+// files: the recordings picked; next: the one to scan next; results: one entry per recording scanned.
+const state = { files: [], next: 0, settings: null, worker: null, run: null, results: [], wakeLock: null };
 window.clipsFinder = state;
 
 const show = (view) => VIEWS.forEach((v) => { $(v).hidden = v !== view; });
@@ -43,19 +49,20 @@ if (missing) {
   $('supportText').hidden = false;
 }
 
-// --- Choosing a recording -------------------------------------------------------------------
-function setFile(file) {
-  if (!file) return;
-  state.file = file;
-  $('pickText').textContent = file.name;
+// --- Choosing recordings ------------------------------------------------------------------
+function setFiles(list) {
+  const files = [...list];
+  if (!files.length) return;
+  state.files = files;
+  $('pickText').textContent = files.length === 1 ? files[0].name : TEXT.picked(files.length);
   $('pick').classList.add('has-file');
   $('findBtn').disabled = missing;
 }
-$('fileInput').addEventListener('change', (e) => setFile(e.target.files[0]));
+$('fileInput').addEventListener('change', (e) => setFiles(e.target.files));
 const pick = $('pick');
 ['dragenter', 'dragover'].forEach((ev) => pick.addEventListener(ev, (e) => { e.preventDefault(); pick.classList.add('over'); }));
 ['dragleave', 'drop'].forEach((ev) => pick.addEventListener(ev, (e) => { e.preventDefault(); pick.classList.remove('over'); }));
-pick.addEventListener('drop', (e) => setFile(e.dataTransfer.files[0]));
+pick.addEventListener('drop', (e) => setFiles(e.dataTransfer.files));
 
 // --- Scanning --------------------------------------------------------------------------------
 const warnOnLeave = (e) => { e.preventDefault(); e.returnValue = ''; };
@@ -70,16 +77,30 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && state.run && !state.run.finished) keepAwake(true);
 });
 
-$('findBtn').addEventListener('click', async () => {
-  if (!state.file) return;
-  clearClips();
+$('findBtn').addEventListener('click', () => {
+  if (!state.files.length) return;
+  clearResults();
   const format = document.querySelector('input[name="rtype"]:checked').value;
-  const minKills = Number($('minKills').value);
-  state.run = { file: state.file.name, format, minKills, phase: null, started: performance.now() };
-  setProgress(0, TEXT.starting, '');
+  state.settings = { format, minKills: Number($('minKills').value) };
+  state.next = 0;
   show('scanView');
   window.addEventListener('beforeunload', warnOnLeave);
   keepAwake(true);
+  scanNext();
+});
+
+// Recordings are scanned one at a time: one scan already uses every core, so two at once would be no quicker.
+async function scanNext() {
+  if (state.next >= state.files.length) {
+    endQueue();
+    showResults();
+    return;
+  }
+  const file = state.files[state.next++], { format, minKills } = state.settings;
+  state.run = { file: file.name, format, minKills, phase: null, clips: [], started: performance.now() };
+  $('queueText').hidden = state.files.length < 2;
+  $('queueText').textContent = TEXT.queue(state.next, state.files.length, file.name);
+  setProgress(0, TEXT.starting, '');
   try {
     const profile = await fetch('hud-profile.json').then((r) => r.json());
     const rules = { ...profile.rules, min_kills: minKills };
@@ -88,21 +109,28 @@ $('findBtn').addEventListener('click', async () => {
     state.worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
     state.worker.onmessage = onWorkerMessage;
     state.worker.onerror = (e) => fail(e.message || 'Worker failed to start.');
-    state.worker.postMessage({ type: 'scan', file: state.file, interval: rules.interval, rules, capture: 'auto', format, parts });
+    state.worker.postMessage({ type: 'scan', file, interval: rules.interval, rules, capture: 'auto', format, parts });
   } catch (e) {
     fail(e.message);
   }
-});
+}
 
+// Cancel stops the scan; recordings already finished still show their clips.
 $('cancelBtn').addEventListener('click', () => {
   stopWorker();
-  show('chooseView');
+  state.run?.clips.forEach((c) => URL.revokeObjectURL(c.url));
+  endQueue();
+  if (state.results.length) showResults();
+  else show('chooseView');
 });
 
 function stopWorker() {
   clearInterval(creep);
   state.worker?.terminate();
   state.worker = null;
+}
+
+function endQueue() {
   if (state.run) state.run.finished = true;
   window.removeEventListener('beforeunload', warnOnLeave);
   keepAwake(false);
@@ -166,7 +194,10 @@ function fail(message, stack) {
   else if (/killfeed/.test(message)) text = TEXT.notLive;
   else if (/name never shows/.test(message)) text = TEXT.noName;
   else if (/decode the video codec/.test(message)) text = TEXT.badCodec;
-  showResults(text);
+  // One recording failing doesn't stop the others.
+  state.run.clips.forEach((c) => URL.revokeObjectURL(c.url));
+  state.results.push({ file: state.run.file, message: text, analysis: null, clips: [], failed: true });
+  scanNext();
 }
 
 // --- Clips -----------------------------------------------------------------------------------
@@ -191,74 +222,99 @@ function clipName(rank, clip, seconds) {
 function onClip({ id, bytes, start, end }) {
   const { ordered } = state.run, rank = ordered.findIndex((c) => c.id === id) + 1, clip = ordered[rank - 1];
   const file = new File([bytes], clipName(rank, clip, end - start), { type: 'video/mp4' });
-  state.clips.push({ rank, kills: clip.kills, start, seconds: Math.round(end - start), file, url: URL.createObjectURL(file) });
-  const done = state.clips.length;
+  state.run.clips.push({ rank, kills: clip.kills, start, seconds: Math.round(end - start), file, url: URL.createObjectURL(file) });
+  const done = state.run.clips.length;
   setProgress(within(CUTTING, done / ordered.length), TEXT.cutting(done, ordered.length), '');
 }
 
 function finish() {
   stopWorker();
-  const { clips } = state;
-  showResults(clips.length ? TEXT.found(clips.length) : TEXT.none(state.run.minKills), state.run.analysis);
+  const { file, clips, minKills, analysis } = state.run;
+  clips.sort((a, b) => a.rank - b.rank);
+  state.results.push({ file, message: clips.length ? TEXT.found(clips.length) : TEXT.none(minKills), analysis, clips });
+  scanNext();
 }
+
+const killTimes = (analysis) => analysis.events.flatMap((e) => Array(e.count).fill(e.time));
 
 // Kills and deaths found, with their times, so the player can check them against the scoreboard.
 // Replay scans don't count deaths, so that box is hidden for them.
-function showStats(analysis) {
-  $('stats').hidden = !analysis;
+function showStats(box, analysis) {
+  const part = (cls) => box.querySelector(`.${cls}`);
+  part('stats').hidden = !analysis;
   if (!analysis) return;
-  const kills = analysis.events.flatMap((e) => Array(e.count).fill(e.time)), deaths = analysis.deaths;
-  const chips = (id, times) => {
+  const kills = killTimes(analysis), deaths = analysis.deaths;
+  const chips = (cls, times) => {
     const spans = times.map((t) => Object.assign(document.createElement('span'), { textContent: mmss(t) }));
-    $(id).replaceChildren(...(spans.length ? spans : [TEXT.noTimes]));
+    part(cls).replaceChildren(...(spans.length ? spans : [TEXT.noTimes]));
   };
-  $('killCount').textContent = kills.length;
-  chips('killTimes', kills);
-  $('deathBox').hidden = $('deathList').hidden = !deaths;
+  part('kill-count').textContent = kills.length;
+  chips('kill-times', kills);
+  part('death-box').hidden = part('death-list').hidden = !deaths;
   if (deaths) {
-    $('deathCount').textContent = deaths.length;
-    chips('deathTimes', deaths);
+    part('death-count').textContent = deaths.length;
+    chips('death-times', deaths);
   }
 }
 
-function showResults(message, analysis = null) {
-  const list = $('clips');
-  list.textContent = '';
-  $('resultText').textContent = message;
-  showStats(analysis);
-  state.clips.sort((a, b) => a.rank - b.rank).forEach((clip) => {
-    const li = document.createElement('li');
-    const video = Object.assign(document.createElement('video'), {
-      src: `${clip.url}#t=0.1`, controls: true, playsInline: true, preload: 'metadata',
-    });
-    const row = document.createElement('div');
-    row.className = 'info-row';
-    const text = document.createElement('div');
-    text.innerHTML = `<strong>${TEXT.clipTitle(clip.rank, clip.kills)}</strong><small>${TEXT.clipInfo(clip.seconds, mmss(clip.start))}</small>`;
-    const button = Object.assign(document.createElement('button'), { className: 'btn', type: 'button', textContent: TEXT.download });
-    button.addEventListener('click', () => saveFiles([clip.file]));
-    row.append(text, button);
-    li.append(video, row);
-    list.append(li);
+function clipItem(clip) {
+  const li = document.createElement('li');
+  const video = Object.assign(document.createElement('video'), {
+    src: `${clip.url}#t=0.1`, controls: true, playsInline: true, preload: 'metadata',
   });
-  $('allBtn').hidden = state.clips.length < 2;
+  const row = document.createElement('div');
+  row.className = 'info-row';
+  const text = document.createElement('div');
+  text.innerHTML = `<strong>${TEXT.clipTitle(clip.rank, clip.kills)}</strong><small>${TEXT.clipInfo(clip.seconds, mmss(clip.start))}</small>`;
+  const button = Object.assign(document.createElement('button'), { className: 'btn', type: 'button', textContent: TEXT.download });
+  button.addEventListener('click', () => saveFiles([clip.file]));
+  row.append(text, button);
+  li.append(video, row);
+  return li;
+}
+
+// Each recording gets a section that opens and closes. A single recording's section starts open.
+function videoSection(result, open) {
+  const box = $('videoTemplate').content.firstElementChild.cloneNode(true);
+  const part = (cls) => box.querySelector(`.${cls}`);
+  box.open = open;
+  part('video-name').textContent = result.file;
+  part('video-info').textContent = result.failed ? TEXT.videoFailed
+    : TEXT.videoInfo(result.clips.length, result.analysis ? killTimes(result.analysis).length : 0);
+  part('message').textContent = result.message;
+  showStats(box, result.analysis);
+  if (result.clips.length) part('clips').append(...result.clips.map(clipItem));
+  else part('clips').remove();
+  const all = part('video-all');
+  all.parentElement.hidden = result.clips.length < 2;
+  all.addEventListener('click', () => saveAll(all, result.clips, `${stem(result.file)} clips.zip`));
+  return box;
+}
+
+function showResults() {
+  const { results } = state, clips = results.flatMap((r) => r.clips);
+  $('resultText').hidden = results.length < 2;
+  $('resultText').textContent = TEXT.scanned(results.length, clips.length);
+  $('videos').replaceChildren(...results.map((r) => videoSection(r, results.length === 1)));
+  // The bottom button saves every recording's clips; with one recording, its own button does that.
+  $('allBtn').hidden = results.length < 2 || clips.length < 2;
   show('resultsView');
 }
 
-function clearClips() {
-  state.clips.forEach((c) => URL.revokeObjectURL(c.url));
-  state.clips = [];
-  $('clips').textContent = '';
+function clearResults() {
+  state.results.forEach((r) => r.clips.forEach((c) => URL.revokeObjectURL(c.url)));
+  state.results = [];
+  $('videos').textContent = '';
 }
 
 // --- Saving ----------------------------------------------------------------------------------
 // Phones get the share sheet ("Save video" puts clips in the gallery); computers download files.
-async function saveFiles(files) {
+async function saveFiles(files, zipName) {
   if (isMobile && navigator.canShare?.({ files })) {
     try { await navigator.share({ files }); return; } catch (e) { if (e.name === 'AbortError') return; }
   }
   if (files.length === 1) download(files[0]);
-  else download(await zipFiles(files));
+  else download(await zipFiles(files, zipName));
 }
 
 function download(file) {
@@ -270,28 +326,30 @@ function download(file) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
-async function zipFiles(files) {
+async function zipFiles(files, name) {
   const zip = new window.JSZip();
   files.forEach((f) => zip.file(f.name, f, { compression: 'STORE' }));
   const blob = await zip.generateAsync({ type: 'blob', streamFiles: true });
-  return new File([blob], `${stem(state.run.file)} clips.zip`, { type: 'application/zip' });
+  return new File([blob], name, { type: 'application/zip' });
 }
 
-$('allBtn').addEventListener('click', async () => {
-  const button = $('allBtn'), label = button.textContent;
+async function saveAll(button, clips, zipName) {
+  const label = button.textContent;
   button.disabled = true;
   button.textContent = TEXT.zipping;
   try {
-    await saveFiles(state.clips.map((c) => c.file));
+    await saveFiles(clips.map((c) => c.file), zipName);
   } finally {
     button.disabled = false;
     button.textContent = label;
   }
-});
+}
+
+$('allBtn').addEventListener('click', () => saveAll($('allBtn'), state.results.flatMap((r) => r.clips), 'ClipFinder clips.zip'));
 
 $('againBtn').addEventListener('click', () => {
-  clearClips();
-  state.file = null;
+  clearResults();
+  state.files = [];
   $('fileInput').value = '';
   $('pickText').textContent = TEXT.pick;
   $('pick').classList.remove('has-file');
