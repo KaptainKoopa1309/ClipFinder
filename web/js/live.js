@@ -1414,12 +1414,16 @@ export function fuseKills(readings, feed, deaths, streaks, P, lag = [-1.5, 3], n
   // A counter kill explains a killfeed row from 2 s before it to 3 s after.
   const sees = (f, k) => (counter.includes(k) ? f - k >= -2 && f - k <= 3 : Math.abs(f - k) <= near);
   const explainedRows = feed.filter((f) => kills.some((k) => sees(f, k)));
+  // Where the counter comes back after over 2 s unread (a Predator Missile's view hides it and the
+  // killfeed): counterKills skips that rise, so a row there is the only sign of the kill.
+  const returns = good.filter((g, i) => i > 0 && g - good[i - 1] > 2);
   for (const f of sortedFeed) {
     if (kills.some((k) => sees(f, k)) || added.some((k) => Math.abs(f - k) > 0 && Math.abs(f - k) <= 1)) continue;
     if (explainedRows.some((e) => f - e > 0 && f - e <= 4)) continue;   // the same row seen again as it moves down
     const small = steps.some(([t, p]) => Math.abs(t - f) <= 2.5 && p >= 20 && p < 85);
     const trade = deaths.some((d) => d - f >= -1 && d - f <= near);
-    if (small || trade || !readNear(f, -2, 2)) added.push(f);
+    const back = returns.some((b) => b - f >= -2 && b - f <= 2);
+    if (small || trade || back || !readNear(f, -2, 2)) added.push(f);
   }
   const used = new Set(), timed = [];
   for (const k of kills) {

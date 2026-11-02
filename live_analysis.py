@@ -1194,6 +1194,9 @@ def fuse_kills(readings, feed, deaths, streaks, lag=(-1.5, 3.), near=3.):
     # A counter kill explains a killfeed row from 2 s before it to 3 s after.
     sees = lambda f, k: -2. <= f-k <= 3. if k in counter else abs(f-k) <= near
     added, explained = [], [f for f in feed if any(sees(f, k) for k in kills)]
+    # Where the counter comes back after over 2 s unread (a Predator Missile's view hides it and the
+    # killfeed): counter_kills skips that rise, so a row there is the only sign of the kill.
+    returns = [b for a, b in zip(good, good[1:]) if b-a > 2.]
     for f in sorted(feed):
         if any(sees(f, k) for k in kills) or any(0 < abs(f-k) <= 1. for k in added):
             continue
@@ -1201,7 +1204,8 @@ def fuse_kills(readings, feed, deaths, streaks, lag=(-1.5, 3.), near=3.):
             continue                    # the same row seen again as it moves down the killfeed
         small = any(abs(t-f) <= 2.5 and 20 <= p < 85 for t, p in steps)
         trade = any(-1 <= d-f <= near for d in deaths)
-        if small or trade or not read_near(f, -2., 2.):
+        back = any(-2 <= b-f <= 2 for b in returns)
+        if small or trade or back or not read_near(f, -2., 2.):
             added.append(f)
     # Counter kills at the killfeed's (earlier) time where it saw the same kill.
     used, timed = set(), []
