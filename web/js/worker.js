@@ -2,7 +2,7 @@
 import { loadProfile, CounterReader } from './hud.js';
 import { openVideo, calibrate, scan, readMatchEnd, cutClip, calibrateLive, scanLive, decodeFailed } from './video.js';
 import { analyse, analyseLive, spliceMatchEnd } from './detect.js';
-import { loadLiveProfile, learnName, followFeed, deathTimes, liveRanges, counterKills, counterReadable, fuseKills, popupEvents } from './live.js';
+import { loadLiveProfile, learnName, followFeed, deathTimes, liveRanges, counterKills, counterReadable, counterFlickers, withoutCounter, fuseKills, popupEvents } from './live.js';
 
 let current = null;
 let stopRequested = false;
@@ -232,10 +232,13 @@ async function finishLive(v, rules, timings, lap, P, feed, result, data) {
   }
   lap('follow');
   const deaths = deathTimes(result.readings, feedDeaths, P);
-  const counter = counterKills(result.readings, P.streaks, P), popups = popupEvents(result.readings, P).reduce((a, [, n]) => a + n, 0);
-  const kills = fuseKills(result.readings, feedKills, deaths, P.streaks, P);
+  // A blurred counter's misread digits look like points earned: its kills come from the popups and killfeed.
+  const flickers = counterFlickers(result.readings, P), readings = flickers ? withoutCounter(result.readings) : result.readings;
+  if (flickers) log('Points counter: its readings keep changing (digits too blurred); not used.');
+  const counter = counterKills(readings, P.streaks, P), popups = popupEvents(readings, P).reduce((a, [, n]) => a + n, 0);
+  const kills = fuseKills(readings, feedKills, deaths, P.streaks, P);
   log(`Kills: points counter ${counter.length} (${P.streaks.names.join(' / ')}), score popups ${popups}, killfeed ${feedKills.length}; `
-    + `combined ${kills.length}${counterReadable(result.readings, P) ? '' : ' (points counter not readable)'}.`);
+    + `combined ${kills.length}${counterReadable(readings, P) ? '' : ' (points counter not readable)'}.`);
   const analysis = analyseLive(result, kills, deaths, liveRanges(result.readings, deaths, rules.respawn_settle, P), rules);
   lap('analyse');
   log(`Followed player's name learned from the killfeed (${template.w}x${template.h} px); `

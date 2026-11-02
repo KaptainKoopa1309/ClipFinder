@@ -1073,6 +1073,21 @@ def counter_readable(readings, share=.5):
     return bool(own) and good >= share*len(own)
 
 
+def counter_flickers(readings, most=.08):
+    """True when the counter keeps flipping (a value, another, the first again within 1 s): digits too
+    blurred to read, whose misreads would look like points earned. Readable recordings flip under 4 in 100."""
+    own = [r for r in readings if not (away(r) or r['blank'])
+           and r.get('points') is not None and r.get('points_match', 0) >= COUNTER_CONF]
+    flips = sum(1 for a, b, c in zip(own, own[1:], own[2:])
+                if c['time']-a['time'] <= 1.01 and a['points'] == c['points'] != b['points'])
+    return bool(own) and flips > most*len(own)
+
+
+def without_counter(readings):
+    """The readings with the counter left out."""
+    return [dict(r, points=None, points_match=0.) for r in readings]
+
+
 def counter_steps(readings, costs):
     """(time, points) for each rise of the counter within a life."""
     points = counter_points(readings, costs)

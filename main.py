@@ -327,12 +327,17 @@ def scan_live_video(video):
     template=live.learn_name(feed_data)
     feed_kills,feed_deaths=live.follow_feed(scan,feed_data,template)
     streaks=live.load_streaks()
-    counter=live.counter_kills(scan['readings'],streaks['costs'],streaks['kill_points'])
-    popups=sum(n for _,n in live.popup_events(scan['readings']))
-    kills=live.fuse_kills(scan['readings'],feed_kills,live.death_times(scan['readings'],feed_deaths),streaks)
+    # A blurred counter's misread digits look like points earned: its kills come from the popups and killfeed.
+    readings=scan['readings']
+    if live.counter_flickers(readings):
+        readings=live.without_counter(readings)
+        print('Points counter: its readings keep changing (digits too blurred); not used.',flush=True)
+    counter=live.counter_kills(readings,streaks['costs'],streaks['kill_points'])
+    popups=sum(n for _,n in live.popup_events(readings))
+    kills=live.fuse_kills(readings,feed_kills,live.death_times(scan['readings'],feed_deaths),streaks)
     print(f'Kills: points counter {len(counter)} ({" / ".join(streaks["names"])}), score popups {popups}, '
           f'killfeed {len(feed_kills)}; combined {len(kills)}'
-          +('' if live.counter_readable(scan['readings']) else ' (points counter not readable)'),flush=True)
+          +('' if live.counter_readable(readings) else ' (points counter not readable)'),flush=True)
     return dict(scan,kills=kills,feed_kills=feed_kills,feed_deaths=feed_deaths,name=template.round(3).tolist())
 
 

@@ -1301,6 +1301,21 @@ export function counterReadable(readings, P, share = .5) {
   return own.length > 0 && own.filter((r) => readable(r, P)).length >= share * own.length;
 }
 
+/** counter_flickers: the counter keeps flipping (a value, another, the first again within 1 s): digits too
+ * blurred to read, whose misreads would look like points earned. Readable recordings flip under 4 in 100. */
+export function counterFlickers(readings, P, most = .08) {
+  const own = readings.filter((r) => !(isAway(r, P) || r.blank) && readable(r, P));
+  let flips = 0;
+  for (let i = 2; i < own.length; i++) {
+    const [a, b, c] = [own[i - 2], own[i - 1], own[i]];
+    if (c.time - a.time <= 1.01 && a.points === c.points && b.points !== a.points) flips++;
+  }
+  return own.length > 0 && flips > most * own.length;
+}
+
+/** without_counter: the readings with the counter left out. */
+export const withoutCounter = (readings) => readings.map((r) => ({ ...r, points: null, points_match: 0 }));
+
 /** counter_steps: [time, points] for each rise of the counter's points within a life. */
 export function counterSteps(readings, costs, P) {
   const pts = counterPoints(readings, costs, P), out = [];
