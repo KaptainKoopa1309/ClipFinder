@@ -2,7 +2,7 @@
 import { loadProfile, CounterReader } from './hud.js';
 import { openVideo, calibrate, scan, readMatchEnd, cutClip, calibrateLive, scanLive, decodeFailed } from './video.js';
 import { analyse, analyseLive, spliceMatchEnd } from './detect.js';
-import { loadLiveProfile, learnName, followFeed, deathTimes, liveRanges, counterKills, counterReadable, counterFlickers, withoutCounter, fuseKills, popupEvents } from './live.js';
+import { loadLiveProfile, learnName, followFeed, deathTimes, liveRanges, counterKills, counterReadable, counterBacked, withoutCounter, fuseKills, popupEvents } from './live.js';
 
 let current = null;
 let stopRequested = false;
@@ -232,9 +232,11 @@ async function finishLive(v, rules, timings, lap, P, feed, result, data) {
   }
   lap('follow');
   const deaths = deathTimes(result.readings, feedDeaths, P);
-  // A blurred counter's misread digits look like points earned: its kills come from the popups and killfeed.
-  const flickers = counterFlickers(result.readings, P), readings = flickers ? withoutCounter(result.readings) : result.readings;
-  if (flickers) log('Points counter: its readings keep changing (digits too blurred); not used.');
+  // A blurred counter's misread digits look like points earned: when the popups and killfeed don't show most of
+  // its kills (readable recordings: 89-100%), the kills come from those two alone.
+  const backed = counterBacked(result.readings, feedKills, P), misread = backed !== null && backed < .75;
+  const readings = misread ? withoutCounter(result.readings) : result.readings;
+  if (misread) log(`Points counter: only ${Math.round(backed * 100)}% of its kills show in the popups or killfeed (misread digits); not used.`);
   const counter = counterKills(readings, P.streaks, P), popups = popupEvents(readings, P).reduce((a, [, n]) => a + n, 0);
   const kills = fuseKills(readings, feedKills, deaths, P.streaks, P);
   log(`Kills: points counter ${counter.length} (${P.streaks.names.join(' / ')}), score popups ${popups}, killfeed ${feedKills.length}; `

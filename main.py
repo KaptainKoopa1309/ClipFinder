@@ -327,11 +327,13 @@ def scan_live_video(video):
     template=live.learn_name(feed_data)
     feed_kills,feed_deaths=live.follow_feed(scan,feed_data,template)
     streaks=live.load_streaks()
-    # A blurred counter's misread digits look like points earned: its kills come from the popups and killfeed.
+    # A blurred counter's misread digits look like points earned: when the popups and killfeed don't show most of
+    # its kills (readable recordings: 89-100%), the kills come from those two alone.
     readings=scan['readings']
-    if live.counter_flickers(readings):
+    backed=live.counter_backed(readings,feed_kills,streaks)
+    if backed is not None and backed<.75:
         readings=live.without_counter(readings)
-        print('Points counter: its readings keep changing (digits too blurred); not used.',flush=True)
+        print(f'Points counter: only {round(backed*100)}% of its kills show in the popups or killfeed (misread digits); not used.',flush=True)
     counter=live.counter_kills(readings,streaks['costs'],streaks['kill_points'])
     popups=sum(n for _,n in live.popup_events(readings))
     kills=live.fuse_kills(readings,feed_kills,live.death_times(scan['readings'],feed_deaths),streaks)

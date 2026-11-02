@@ -1301,16 +1301,18 @@ export function counterReadable(readings, P, share = .5) {
   return own.length > 0 && own.filter((r) => readable(r, P)).length >= share * own.length;
 }
 
-/** counter_flickers: the counter keeps flipping (a value, another, the first again within 1 s): digits too
- * blurred to read, whose misreads would look like points earned. Readable recordings flip under 4 in 100. */
-export function counterFlickers(readings, P, most = .08) {
-  const own = readings.filter((r) => !(isAway(r, P) || r.blank) && readable(r, P));
-  let flips = 0;
-  for (let i = 2; i < own.length; i++) {
-    const [a, b, c] = [own[i - 2], own[i - 1], own[i]];
-    if (c.time - a.time <= 1.01 && a.points === c.points && b.points !== a.points) flips++;
+/** counter_backed: the share of the counter's kills a popup or killfeed row also shows (2 s before to 3 s after),
+ * or null with fewer than `enough` to judge. Blurred digits (425 read as 5) make kills nothing else shows. */
+export function counterBacked(readings, feed, P, enough = 10) {
+  const counter = counterKills(readings, P.streaks, P), popups = popupEvents(readings, P);
+  if (counter.length < enough) return null;
+  let backed = 0;
+  for (const t of new Set(counter)) {
+    const within = (x) => x - t >= -2 && x - t <= 3;
+    const seen = Math.max(popups.filter(([p]) => within(p)).reduce((a, [, n]) => a + n, 0), feed.filter(within).length);
+    backed += Math.min(counter.filter((x) => x === t).length, seen);
   }
-  return own.length > 0 && flips > most * own.length;
+  return backed / counter.length;
 }
 
 /** without_counter: the readings with the counter left out. */

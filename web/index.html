@@ -57,6 +57,22 @@
   <!-- Step 3: results -->
   <section class="tool" id="resultsView" hidden>
     <p class="message" id="resultText"></p>
+    <div class="stats" id="stats" hidden>
+      <div class="totals">
+        <div><strong id="killCount">0</strong><span>Kills found</span></div>
+        <div id="deathBox"><strong id="deathCount">0</strong><span>Deaths found</span></div>
+      </div>
+      <p class="hint">Compare these with your match scoreboard. If they’re far off, some clips may be wrong.</p>
+      <details>
+        <summary>Show when each kill and death happened</summary>
+        <p class="times-label">Kills</p>
+        <p class="times" id="killTimes"></p>
+        <div id="deathList">
+          <p class="times-label">Deaths</p>
+          <p class="times" id="deathTimes"></p>
+        </div>
+      </details>
+    </div>
     <ul class="clips" id="clips"></ul>
     <div class="actions">
       <button class="btn" id="allBtn" type="button">Download all</button>

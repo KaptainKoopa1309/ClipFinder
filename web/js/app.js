@@ -20,6 +20,7 @@ const TEXT = {
   noName: 'We couldn’t find your name in the killfeed, Clearer Recording resolution or quality is required.',
   badCodec: 'This browser can’t read this video’s format. Try a different browser.',
   failed: 'This video couldn’t be read. Check it’s an MP4 match recording and try again.',
+  noTimes: 'None found',
 };
 
 const $ = (id) => document.getElementById(id);
@@ -198,13 +199,33 @@ function onClip({ id, bytes, start, end }) {
 function finish() {
   stopWorker();
   const { clips } = state;
-  showResults(clips.length ? TEXT.found(clips.length) : TEXT.none(state.run.minKills));
+  showResults(clips.length ? TEXT.found(clips.length) : TEXT.none(state.run.minKills), state.run.analysis);
 }
 
-function showResults(message) {
+// Kills and deaths found, with their times, so the player can check them against the scoreboard.
+// Replay scans don't count deaths, so that box is hidden for them.
+function showStats(analysis) {
+  $('stats').hidden = !analysis;
+  if (!analysis) return;
+  const kills = analysis.events.flatMap((e) => Array(e.count).fill(e.time)), deaths = analysis.deaths;
+  const chips = (id, times) => {
+    const spans = times.map((t) => Object.assign(document.createElement('span'), { textContent: mmss(t) }));
+    $(id).replaceChildren(...(spans.length ? spans : [TEXT.noTimes]));
+  };
+  $('killCount').textContent = kills.length;
+  chips('killTimes', kills);
+  $('deathBox').hidden = $('deathList').hidden = !deaths;
+  if (deaths) {
+    $('deathCount').textContent = deaths.length;
+    chips('deathTimes', deaths);
+  }
+}
+
+function showResults(message, analysis = null) {
   const list = $('clips');
   list.textContent = '';
   $('resultText').textContent = message;
+  showStats(analysis);
   state.clips.sort((a, b) => a.rank - b.rank).forEach((clip) => {
     const li = document.createElement('li');
     const video = Object.assign(document.createElement('video'), {

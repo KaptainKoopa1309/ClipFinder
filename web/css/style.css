@@ -86,6 +86,17 @@ nav a:hover { color: var(--green-text); }
 
 /* Results */
 .message { text-align: center; margin: 0 0 1.25rem; font-weight: 500; }
+.stats { margin: 0 0 1.25rem; }
+.totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: .75rem; }
+.totals div { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: .7rem; text-align: center; }
+.totals strong { display: block; font-size: 1.9rem; line-height: 1.2; color: var(--green-text); font-variant-numeric: tabular-nums; }
+.totals span { font-size: .9rem; color: var(--muted); }
+.hint { margin: .6rem 0 0; text-align: center; font-size: .9rem; color: var(--muted); }
+.stats details { margin-top: .6rem; border: 1px solid var(--line); border-radius: 8px; padding: .5rem 1rem; }
+.stats summary { cursor: pointer; color: var(--green-text); font-size: .9rem; }
+.times-label { margin: .6rem 0 .2rem; font-size: .9rem; font-weight: 500; }
+.times { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0 0 .4rem; font-size: .9rem; color: var(--muted); }
+.times span { background: var(--surface); border-radius: 4px; padding: 0 .45rem; font-size: .85rem; font-variant-numeric: tabular-nums; }
 .clips { list-style: none; margin: 0 0 1.25rem; padding: 0; display: grid; gap: 1rem; }
 .clips li { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .clips video { display: block; width: 100%; max-height: 22rem; background: #000; }

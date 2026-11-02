@@ -1073,14 +1073,19 @@ def counter_readable(readings, share=.5):
     return bool(own) and good >= share*len(own)
 
 
-def counter_flickers(readings, most=.08):
-    """True when the counter keeps flipping (a value, another, the first again within 1 s): digits too
-    blurred to read, whose misreads would look like points earned. Readable recordings flip under 4 in 100."""
-    own = [r for r in readings if not (away(r) or r['blank'])
-           and r.get('points') is not None and r.get('points_match', 0) >= COUNTER_CONF]
-    flips = sum(1 for a, b, c in zip(own, own[1:], own[2:])
-                if c['time']-a['time'] <= 1.01 and a['points'] == c['points'] != b['points'])
-    return bool(own) and flips > most*len(own)
+def counter_backed(readings, feed, streaks, enough=10):
+    """The share of the counter's kills a popup or killfeed row also shows (2 s before to 3 s after),
+    or None with fewer than `enough` to judge. Blurred digits (425 read as 5) make kills nothing else shows."""
+    counter = counter_kills(readings, streaks['costs'], streaks['kill_points'])
+    popups = popup_events(readings)
+    if len(counter) < enough:
+        return None
+    backed = 0
+    for t in set(counter):
+        def within(x): return -2 <= x-t <= 3
+        seen = max(sum(n for p, n in popups if within(p)), sum(1 for f in feed if within(f)))
+        backed += min(counter.count(t), seen)
+    return backed/len(counter)
 
 
 def without_counter(readings):
