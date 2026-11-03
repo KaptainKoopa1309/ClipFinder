@@ -25,7 +25,16 @@ const TEXT = {
   noTimes: 'None found',
   videoInfo: (clips, kills) => `${clips === 1 ? '1 clip' : `${clips} clips`}, ${kills === 1 ? '1 kill' : `${kills} kills`} found`,
   videoFailed: 'Couldn’t be scanned',
-  scanned: (n, clips) => `${n} recordings scanned, ${clips === 1 ? '1 clip' : `${clips} clips`} found. Open a recording to see its clips.`,
+  scanned: (n, clips) => `${n} recordings scanned, ${clips === 1 ? '1 clip' : `${clips} clips`} found. Open a recording to see only its clips.`,
+  overallInfo: (n, sort) => `${n === 1 ? '1 clip' : `${n} clips`}, ${SORTS[sort].label}`,
+  overallClipInfo: (seconds, start, file) => `${seconds} s long, starts at ${start} in ${file}`,
+};
+
+// The overall list's orders: by score (as within one recording), most kills, or shortest clip. Ties go to the higher score.
+const SORTS = {
+  score: { label: 'best score first', order: (a, b) => b.score - a.score || b.kills - a.kills },
+  kills: { label: 'most kills first', order: (a, b) => b.kills - a.kills || b.score - a.score },
+  time: { label: 'shortest first', order: (a, b) => a.seconds - b.seconds || b.score - a.score },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -222,7 +231,8 @@ function clipName(rank, clip, seconds) {
 function onClip({ id, bytes, start, end }) {
   const { ordered } = state.run, rank = ordered.findIndex((c) => c.id === id) + 1, clip = ordered[rank - 1];
   const file = new File([bytes], clipName(rank, clip, end - start), { type: 'video/mp4' });
-  state.run.clips.push({ rank, kills: clip.kills, start, seconds: Math.round(end - start), file, url: URL.createObjectURL(file) });
+  state.run.clips.push({ rank, kills: clip.kills, score: clip.score, start, seconds: Math.round(end - start),
+    recording: state.run.file, file, url: URL.createObjectURL(file) });
   const done = state.run.clips.length;
   setProgress(within(CUTTING, done / ordered.length), TEXT.cutting(done, ordered.length), '');
 }
@@ -257,7 +267,9 @@ function showStats(box, analysis) {
   }
 }
 
-function clipItem(clip) {
+// A clip with its preview and download button. In the overall list it's numbered by its place there
+// and names its recording.
+function clipItem(clip, place = null) {
   const li = document.createElement('li');
   const video = Object.assign(document.createElement('video'), {
     src: `${clip.url}#t=0.1`, controls: true, playsInline: true, preload: 'metadata',
@@ -265,7 +277,11 @@ function clipItem(clip) {
   const row = document.createElement('div');
   row.className = 'info-row';
   const text = document.createElement('div');
-  text.innerHTML = `<strong>${TEXT.clipTitle(clip.rank, clip.kills)}</strong><small>${TEXT.clipInfo(clip.seconds, mmss(clip.start))}</small>`;
+  const title = Object.assign(document.createElement('strong'), { textContent: TEXT.clipTitle(place ?? clip.rank, clip.kills) });
+  const info = Object.assign(document.createElement('small'), {
+    textContent: place ? TEXT.overallClipInfo(clip.seconds, mmss(clip.start), clip.recording) : TEXT.clipInfo(clip.seconds, mmss(clip.start)),
+  });
+  text.append(title, info);
   const button = Object.assign(document.createElement('button'), { className: 'btn', type: 'button', textContent: TEXT.download });
   button.addEventListener('click', () => saveFiles([clip.file]));
   row.append(text, button);
@@ -296,15 +312,27 @@ function showResults() {
   $('resultText').hidden = results.length < 2;
   $('resultText').textContent = TEXT.scanned(results.length, clips.length);
   $('videos').replaceChildren(...results.map((r) => videoSection(r, results.length === 1)));
+  $('overall').hidden = results.length < 2 || !clips.length;
+  showOverall();
   // The bottom button saves every recording's clips; with one recording, its own button does that.
   $('allBtn').hidden = results.length < 2 || clips.length < 2;
   show('resultsView');
 }
 
+// Every recording's clips in one list, in the order picked in "Sort by".
+function showOverall() {
+  if ($('overall').hidden) return;
+  const sort = $('sortBy').value, clips = state.results.flatMap((r) => r.clips).sort(SORTS[sort].order);
+  $('overallInfo').textContent = TEXT.overallInfo(clips.length, sort);
+  $('overallClips').replaceChildren(...clips.map((c, i) => clipItem(c, i + 1)));
+}
+$('sortBy').addEventListener('change', showOverall);
+
 function clearResults() {
   state.results.forEach((r) => r.clips.forEach((c) => URL.revokeObjectURL(c.url)));
   state.results = [];
   $('videos').textContent = '';
+  $('overallClips').textContent = '';
 }
 
 // --- Saving ----------------------------------------------------------------------------------

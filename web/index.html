@@ -58,9 +58,27 @@
   <!-- Step 3: results -->
   <section class="tool" id="resultsView" hidden>
     <p class="message" id="resultText"></p>
-    <div class="videos" id="videos"></div>
+    <div class="videos">
+      <!-- With several recordings: every clip ranked together. -->
+      <details class="video" id="overall" open hidden>
+        <summary><span class="video-title"><strong class="video-name">Best clips from all recordings</strong><small class="video-info" id="overallInfo"></small></span></summary>
+        <div class="video-body">
+          <div class="options sort">
+            <label>Sort by
+              <select id="sortBy">
+                <option value="score" selected>Score</option>
+                <option value="kills">Kills</option>
+                <option value="time">Time</option>
+              </select>
+            </label>
+          </div>
+          <ul class="clips" id="overallClips"></ul>
+        </div>
+      </details>
+      <div class="videos" id="videos"></div>
+    </div>
     <div class="actions">
-      <button class="btn" id="allBtn" type="button">Download everything</button>
+      <button class="btn" id="allBtn" type="button">Download all</button>
       <button class="btn plain" id="againBtn" type="button">Scan another</button>
     </div>
   </section>
@@ -111,6 +129,7 @@
       <li>Several recordings are scanned one after another, so the scan takes as long as scanning each of them on its own.</li>
       <li>Clips are cut from your original video, so they keep its original quality.</li>
       <li>Clips are listed in order of a "score" assigned to them, prioritizing high kills done in a short amount.</li>
+      <li>When you scan several recordings, “Best clips from all recordings” ranks the clips from all of them together. You can sort it by score, by kills (most first) or by time (shortest clip first).</li>
       <li>The reader may misread or miss kills here and there and is *NOT* 100% accurate, incase you run into any such misreadings or are unable to calibrate your recordings, reach out to me in the Contact section.</li>
     </ul>
   </div>

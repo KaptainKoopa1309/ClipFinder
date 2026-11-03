@@ -273,10 +273,10 @@ export function spliceMatchEnd(scan, final, switchTime) {
     ...scan.readings.filter((r) => r.time > lastFinal)];
 }
 
-/** 2 × kills^1.5 over the seconds from the first kill to the last (at least 1 s): fast, big streaks first. */
+/** kills² over the clip's length in seconds: big streaks first, then fast ones. Squaring the kills lets an
+ * 8 kill 40 s clip (1.6) beat a 3 kill 15 s one (0.6), and a 10 kill 60 s clip (1.67) beat a 4 kill 20 s one (0.8). */
 export function score(clip) {
-  const t = clip.kill_times;
-  return round(2 * clip.kills ** 1.5 / Math.max(t[t.length - 1] - t[0], 1), 4);
+  return round(clip.kills ** 2 / Math.max(clip.end - clip.start, 1), 4);
 }
 
 /** main.process after the scan: kill events, excluded intervals and ranked streaks. */

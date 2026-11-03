@@ -101,6 +101,8 @@ nav a:hover { color: var(--green-text); }
 .video-info { display: block; color: var(--muted); font-size: .9rem; }
 .video-body { padding: .5rem 1rem 1rem; }
 .video-body .actions { margin-bottom: 0; }
+.sort { margin: 0 0 1rem; }
+.videos .videos { margin: 0; }
 .stats { margin: 0 0 1.25rem; }
 .totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: .75rem; }
 .totals div { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: .7rem; text-align: center; }
