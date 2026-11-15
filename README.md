@@ -1,127 +1,103 @@
-<!--
-  EDITING THIS README
-  - Change any sentence freely; keep the lines that start with #, |, - or ``` as they are.
-  - Replace the YOUR-... placeholders (website link, contact) with your own.
-  - Comments like this one are hidden on GitHub.
--->
+# ClipFinder — React + Tailwind
 
-# ClipFinder
+A React/Vite migration of the ClipFinder COD Mobile clip-finding website. The browser-side detection modules and worker pipeline are carried over from the original site; the interface is now composed of React components and styled with Tailwind CSS.
 
-**Find every multi-kill streak in your Call of Duty: Mobile recordings and save each one as a clip.**
+## Requirements
 
-ClipFinder watches your match recording, reads your kills and deaths, and cuts out every life where you got several kills. Free, no sign-up, and your video never leaves your device.
+- Node.js 20.19+ or 22.12+ (Node.js 22 LTS recommended)
+- npm
+- A modern browser with WebCodecs (`VideoDecoder`) and `OffscreenCanvas`
 
-**Try out the website:** [https://clipfinder.vrzorawarsingh.workers.dev/](https://clipfinder.vrzorawarsingh.workers.dev/)
-
----
-
-## Features
-
-- **Two supported recording types:** live match recordings (screen-recorded while playing) and Replay mode recordings.
--**Supports multiple videos:** you have the choice to select one video to scan, or multiple videos to scan at once, scanning multiple videos gives you a combined list of clips.
-- **Adjustable Kill threshold:** choose the minimum kills a clip needs (3, 4, 5 and up).
-- **Best clips first:** clips are ranked based on how many kills were done and how quickly they were performed.
-- **Original quality:** clips are cut straight from your video, not re-encoded. 
-- **Private:** everything runs in your browser. No video data is uploaded.
-- **Preview and download:** watch each clip, download it individually, or all at once.
-
-## Using the website
-
-1. Open the website and click **Select Match Recording**.
-2. Upload your video recordings, you can choose one video or multiple videos as you wish.
-2. Select your recording type between **Live Match recording** or **Replay Mode recording**.
-3. Pick the minimum number of kills a clip needs.
-4. Click **Find clips** and keep the page open while it scans.
-5. Preview your clips and download the ones you want.
-
-Works best in **Chrome** or **Edge**, however it supports every browser.
-
-## Running it on your computer
-
-The same detection is also available as a Python command-line tool.
-
-### Requirements
-
-- Python 3.11 or 3.12
-
-### Install
+## Run locally
 
 ```bash
-python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt
+npm install
+npm run dev
 ```
 
-On macOS or Linux, use `.venv/bin/python` instead of `.venv/Scripts/python`.
+Open the local URL printed by Vite. Localhost is treated as a secure context by modern browsers, which is required for the scanner APIs.
 
-### Run
-
-Put your recording in the `downloads` folder, then run:
+## Production build
 
 ```bash
-.venv/Scripts/python main.py "downloads/Match 1.mp4"
+npm run build
+npm run preview
 ```
 
-- Clips are saved to `clips/`.
-- A list of timestamps is saved to `analysis/`.
-- Pass a folder instead of a file to scan every video in it.
+The deployable site is written to `dist/`.
 
-### Options
+## Cloudflare Workers (matches the existing `workers.dev` hosting)
 
-| Option | Default | What it does |
-|---|---|---|
-| `--min-kills` | 3 | Minimum kills a clip needs |
-| `--pre` | 3 | Seconds kept before the first kill |
-| `--post` | 3 | Seconds kept after the last kill |
-| `--format` | auto | `auto`, `live` or `replay` |
-| `--no-clips` | off | Only write timestamps, don't cut clips |
-| `--reuse-readings` | off | Re-run the rules on a video scanned before, without watching it again |
+This project includes `wrangler.jsonc` with `dist/` as the static asset directory and SPA fallback enabled.
 
-Defaults live in `settings.json`. Run `python main.py --help` to see every option.
+```bash
+npm run deploy       # build, then deploy to Cloudflare Workers
+```
+
+Wrangler will prompt you to authenticate with Cloudflare the first time. The Worker is named `clipfinder`; change `name` in `wrangler.jsonc` if you want a different Worker. The SPA fallback serves React routes such as `/contact`, `/privacy`, and `/terms` from `index.html`.
+
+### Cloudflare Pages alternative
+
+- Build command: `npm run build`
+- Build output directory: `dist`
+- The `public/_redirects` file provides SPA route fallback for `/contact`, `/privacy`, and `/terms`.
 
 ## Project structure
 
 ```text
-web/                   The website (static files, deploy this folder)
-  index.html           Main page
-  contact.html         Contact page
-  privacy.html         Privacy Policy
-  terms.html           Terms of Use
-  css/style.css        Colours and layout
-  js/app.js            Page logic and all on-screen messages
-  js/                  Detection code (a port of the Python tool)
-main.py                Command-line tool
-video_analysis.py      Replay recordings: kill counter and deaths
-live_analysis.py       Live recordings: killfeed, points counter, score popups
-settings.json          Clip rules
-scorestreaks.json      Scorestreak costs
-web_tools/             Exports the settings for the website
+public/
+  _redirects
+  hud-profile.json
+  live-profile.json
+  assets/
+    combo_word.bin
+    digits.bin
+src/
+  components/       Reusable interface components
+  engine/           Original browser detection and worker pipeline
+  pages/             Home, Contact, Privacy, Terms
+  App.jsx
+  index.css
+  main.jsx
+  useClipFinder.js   React state and worker orchestration
 ```
 
-## For developers
+## Scanner notes
 
-- **Deploy:** the `web/` folder is a static site and can be hosted anywhere (for example Cloudflare Pages).
-- **After editing `settings.json` or `scorestreaks.json`:** run `python web_tools/export_hud_profile.py`, then redeploy `web/`.
-- **Website text:** page wording is in the HTML files; messages shown during a scan are in the `TEXT` block at the top of `web/js/app.js`.
-- **Debugging the website:** open the browser console (F12). Scan details are logged as `[scan]` messages, and `window.clipsFinder` holds the page state. Add `?parts=1` to the address to scan in a single worker.
-- **Code map:** the browser code mirrors the Python function by function, with the same names in camelCase (`fuse_kills` → `fuseKills`).
+- Replay and Live Match recording modes are preserved.
+- The original HUD templates and binary digit/word assets are required and included under `public/`.
+- Video reading and clip cutting use the `mediabunny` npm package.
+- Download All uses the `jszip` npm package.
+- Scanning runs in browser workers; recordings are processed locally and are not uploaded by this application.
+- The browser must support `VideoDecoder` and `OffscreenCanvas`. Use a recent Chrome or Edge over HTTPS for best compatibility.
 
-## Accuracy
+## Community links
 
-Kill detection reads the game's HUD, so it is **not 100% accurate**. It can occasionally miss or misread a kill, especially with unusual HUD layouts or low-quality recordings. If that happens, please get in touch.
+- GitHub: set in `src/components/CommunityCards.jsx` and currently points to the existing ClipFinder repository.
+- Suggestions: opens an email draft to the contact address from the original Contact page.
+- Patreon: add the creator page URL to `PATREON_URL` in `src/components/CommunityCards.jsx`. The card is visible but its CTA remains disabled until that URL is configured.
 
-## Contact
+## Important
 
-<!-- Contact details -->
-Found a bug or have a suggestion? Reach out:
+The React migration preserves the original browser scanner modules rather than translating the Python CLI into a server-side API. The Python command-line scanner is a separate tool and is not required to run this website.
 
-- Email: vrzorawarsinghcod@gmail.com
-- Instagram: [luigicodm_13](https://www.instagram.com/luigicodm_13/)
-- Twitter/X: [Weegiethfc](https://x.com/Weegiethfc)
 
-## License
+## Security and resource safeguards
 
-Released under the [MIT License](LICENSE).
+- The development server allows only Vite's normal local hosts by default. For a temporary Cloudflare Quick Tunnel, set `CLIPFINDER_DEV_ALLOWED_HOSTS` to the exact current hostname before starting Vite. Do not use `allowedHosts: true` or a wildcard. In PowerShell:
 
----
+  ```powershell
+  $env:CLIPFINDER_DEV_ALLOWED_HOSTS = "your-random-name.trycloudflare.com"
+  npm run dev
+  ```
 
-*Not affiliated with Activision. Call of Duty is a trademark of Activision Publishing, Inc.*
+  The Vite development server is not a production host. Keep a Quick Tunnel open only for controlled testing, share it only with trusted testers, and stop `cloudflared` when finished.
+
+- The `?parts=` worker debugging override is honoured only in development and is limited to 1–4 workers. The worker independently clamps the requested count. Automatic scan and analysis pools are also capped.
+- Recordings are limited to 4 GiB, two hours, and roughly 4K pixel dimensions. These checks are repeated inside the scanner before decoding/packet analysis.
+- Clip cutting has per-clip and per-scan output-memory limits. Batch ZIP/share generation is limited to 256 MiB; larger batches should be downloaded clip by clip.
+- Generated clip and archive names are sanitized before download.
+- `public/_headers` applies production browser security headers (including an enforced Content Security Policy) when deployed through Cloudflare Workers Static Assets or Cloudflare Pages. Verify the headers against the deployed response after deployment, especially if you later add third-party scripts, fonts, analytics, or embedded content.
+- The Privacy Policy describes local video processing and hosting-provider request metadata. Update it if analytics, cookies, APIs, or other external processing are introduced.
+
+Run `npm install` to create/update `package-lock.json`, commit that lockfile, then use `npm ci` for repeatable installs. Review `npm audit` output before upgrading dependencies; do not force major-version upgrades automatically.

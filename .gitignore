@@ -1,14 +1,38 @@
-# Python
+
+# Dependencies and build output
+node_modules/
+dist/
+.vite/
+.wrangler/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Editor configuration
+.vscode/
+.idea/
+.claude/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and test output
+*.log
+coverage/
+playwright-report/
+test-results/
+
+# Python cache and virtual environments
 __pycache__/
-*.pyc
+*.py[cod]
 .venv/
 venv/
 
-# Node / Cloudflare
-node_modules/
-.wrangler/
-
-# Scan output and recordings
+# Local recordings and generated clips
 analysis/
 clips/
 downloads/*
@@ -17,14 +41,3 @@ downloads/*
 *.mov
 *.mkv
 *.zip
-
-# Editors, OS and local tools
-.vscode/
-.idea/
-.claude/
-*.log
-.env
-.env.*
-.DS_Store
-Thumbs.db
-desktop.ini

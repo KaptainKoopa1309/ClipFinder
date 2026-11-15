@@ -1,0 +1,659 @@
+
+@import "@fontsource-variable/geist";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========================================
+   DESIGN TOKENS
+======================================== */
+
+:root {
+  color-scheme: dark;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --cf-page: #080a09;
+  --cf-surface: #101411;
+  --cf-surface-raised: #171c18;
+  --cf-border: #29312b;
+  --cf-border-strong: #39443c;
+
+  --cf-text: #f0f3f0;
+  --cf-text-secondary: #a0aaa2;
+  --cf-text-muted: #778279;
+
+  --cf-accent: #22c55e;
+  --cf-accent-hover: #16a34a;
+  --cf-accent-foreground: #06110a;
+
+  --cf-radius-sm: 6px;
+  --cf-radius-md: 9px;
+  --cf-radius-lg: 12px;
+
+  background: var(--cf-page);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  width: 100%;
+  overflow-x: clip;
+  scroll-behavior: smooth;
+  background: var(--cf-page);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  width: 100%;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow-x: clip;
+
+  font-family: "Geist Variable", Geist, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  font-optical-sizing: auto;
+  font-feature-settings: "ss01" on;
+  line-height: 1.7;
+
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+
+  background: var(--cf-page);
+  color: var(--cf-text);
+}
+
+#root {
+  min-height: 100vh;
+  width: 100%;
+  overflow-x: clip;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+a,
+label,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ========================================
+   ACCESSIBILITY & INTERACTION
+======================================== */
+
+button:focus-visible,
+a:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 2px solid #4ade80;
+  outline-offset: 3px;
+}
+
+::selection {
+  color: #041209;
+  background: #4ade80;
+}
+
+/* ========================================
+   MEDIA
+======================================== */
+
+video {
+  display: block;
+  max-width: 100%;
+}
+
+/* ========================================
+   SCAN PROGRESS
+======================================== */
+
+.scan-progress {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 0.625rem;
+  overflow: hidden;
+  border: 0;
+  border-radius: 9999px;
+  background: #242a26;
+  color: #22c55e;
+}
+
+.scan-progress::-webkit-progress-bar {
+  border-radius: 9999px;
+  background: #242a26;
+}
+
+.scan-progress::-webkit-progress-value {
+  border-radius: 9999px;
+  background: #22c55e;
+  transition: width 300ms ease-out;
+}
+
+.scan-progress::-moz-progress-bar {
+  border-radius: 9999px;
+  background: #22c55e;
+  transition: width 300ms ease-out;
+}
+
+/* ========================================
+   CONTENT TYPOGRAPHY
+======================================== */
+
+.prose-clip h2 {
+  margin-top: 1.6rem;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.prose-clip a {
+  color: #4ade80;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
+.prose-clip a:hover {
+  color: #22c55e;
+}
+
+/* ========================================
+   REUSABLE DESIGN PRIMITIVES
+======================================== */
+
+.cf-container {
+  width: min(calc(100% - 32px), 1200px);
+  margin-inline: auto;
+}
+
+.cf-surface {
+  background: var(--cf-surface);
+  border: 1px solid var(--cf-border);
+  border-radius: var(--cf-radius-md);
+}
+
+.cf-surface-raised {
+  background: var(--cf-surface-raised);
+  border: 1px solid var(--cf-border);
+  border-radius: var(--cf-radius-md);
+}
+
+.cf-section-title {
+  color: var(--cf-text);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -0.02em;
+}
+
+.cf-description {
+  color: var(--cf-text-secondary);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.cf-eyebrow {
+  color: var(--cf-text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.cf-interactive {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.cf-interactive:hover {
+  border-color: var(--cf-border-strong);
+}
+
+/* ========================================
+   SHADCN / TAILWIND THEME VARIABLES
+======================================== */
+
+@layer base {
+  .theme {
+    --font-heading: var(--font-sans);
+    --font-sans: "Geist Variable", sans-serif;
+  }
+
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --radius: 0.625rem;
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar-primary: oklch(0.205 0 0);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.708 0 0);
+  }
+
+  .dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+  }
+
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply font-sans;
+  }
+}
+
+/* ========================================
+   LIGHTBULB ANIMATION
+======================================== */
+
+@keyframes bulb-hover {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+
+  25% {
+    transform: rotate(-13deg) scale(1.12);
+  }
+
+  55% {
+    transform: rotate(10deg) scale(1.12);
+  }
+
+  80% {
+    transform: rotate(-5deg) scale(1.05);
+  }
+
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+/* ========================================
+   COMMUNITY ICONS — GENERAL
+======================================== */
+
+.community-hover-icon {
+  transform-origin: center;
+  transition: filter 200ms ease;
+}
+
+.community-hover-icon:hover {
+  animation: community-icon-hover 480ms ease-in-out;
+  filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.65));
+}
+
+@keyframes community-icon-hover {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+
+  30% {
+    transform: scale(1.18) rotate(-12deg);
+  }
+
+  65% {
+    transform: scale(1.12) rotate(9deg);
+  }
+
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+/* ========================================
+   GITHUB — PLAYFUL BOUNCE
+======================================== */
+
+@keyframes github-cat-bounce {
+  0% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+
+  30% {
+    transform: translateY(-5px) rotate(-10deg) scale(1.1);
+  }
+
+  55% {
+    transform: translateY(1px) rotate(7deg) scale(1.06);
+  }
+
+  80% {
+    transform: translateY(-2px) rotate(-3deg);
+  }
+
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+}
+
+.github-cat-hover {
+  transform-origin: center;
+}
+
+.github-cat-hover:hover {
+  animation: github-cat-bounce 550ms ease-in-out;
+  filter: drop-shadow(0 2px 5px rgba(255, 255, 255, 0.2));
+}
+
+/* ========================================
+   PATREON — SMOOTH PULSE
+======================================== */
+
+@keyframes patreon-pulse {
+  0% {
+    transform: scale(1);
+  }
+
+  45% {
+    transform: scale(1.24);
+  }
+
+  75% {
+    transform: scale(0.96);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.patreon-p-hover {
+  transform-origin: center;
+}
+
+.patreon-p-hover:hover {
+  animation: patreon-pulse 450ms ease-out;
+  filter: drop-shadow(0 0 7px rgba(244, 114, 182, 0.55));
+}
+
+/* ========================================
+   DEVELOPERS — CODE ICON SCAN MOTION
+======================================== */
+
+@keyframes developer-code-scan {
+  0% {
+    transform: translateX(0) scale(1);
+    filter: drop-shadow(0 0 0 transparent);
+  }
+
+  25% {
+    transform: translateX(-2px) scale(1.08);
+  }
+
+  50% {
+    transform: translateX(2px) scale(1.08);
+    filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.55));
+  }
+
+  75% {
+    transform: translateX(-1px) scale(1.04);
+  }
+
+  100% {
+    transform: translateX(0) scale(1);
+    filter: drop-shadow(0 0 0 transparent);
+  }
+}
+
+.developer-code-scan {
+  transform-origin: center;
+}
+
+.developer-code-scan:hover {
+  animation: developer-code-scan 450ms ease-in-out;
+}
+
+/* ========================================
+   PAGE RESPONSIVENESS
+======================================== */
+
+@media (max-width: 640px) {
+  .cf-container {
+    width: calc(100% - 28px);
+  }
+}
+
+/* ========================================
+   REDUCED MOTION
+======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .community-hover-icon:hover,
+  .github-cat-hover:hover,
+  .patreon-p-hover:hover,
+  .developer-code-scan:hover {
+    animation: none;
+    filter: none;
+  }
+
+  .scan-progress::-webkit-progress-value,
+  .scan-progress::-moz-progress-bar {
+    transition: none;
+  }
+}
+
+
+/* Developer code icon */
+.developer-code-icon {
+  overflow: visible;
+}
+
+.developer-code-icon path {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Left bracket */
+@keyframes code-bracket-left {
+  0% { transform: translateX(0); }
+  35% { transform: translateX(-2.5px); }
+  70% { transform: translateX(1px); }
+  100% { transform: translateX(0); }
+}
+
+/* Right bracket */
+@keyframes code-bracket-right {
+  0% { transform: translateX(0); }
+  35% { transform: translateX(2.5px); }
+  70% { transform: translateX(-1px); }
+  100% { transform: translateX(0); }
+}
+
+/* Slash */
+@keyframes code-slash-tilt {
+  0% { transform: rotate(0deg); }
+  40% { transform: rotate(-18deg); }
+  75% { transform: rotate(8deg); }
+  100% { transform: rotate(0deg); }
+}
+
+.developer-code-icon:hover .code-bracket-left {
+  animation: code-bracket-left 420ms ease-in-out;
+}
+
+.developer-code-icon:hover .code-bracket-right {
+  animation: code-bracket-right 420ms ease-in-out;
+}
+
+.developer-code-icon:hover .code-slash {
+  animation: code-slash-tilt 420ms ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .developer-code-icon:hover path {
+    animation: none;
+  }
+}
+
+/* ========================================
+   LEGAL PAGES — ENTRY ANIMATION
+======================================== */
+
+@keyframes legal-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.legal-page-enter {
+  animation: legal-page-enter 450ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .legal-page-enter {
+    animation: none;
+  }
+}
+
+/* Privacy Policy and Terms page entrance */
+@keyframes legal-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.legal-page-enter {
+  animation: legal-page-enter 450ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .legal-page-enter {
+    animation: none;
+  }
+}
+
+/* ========================================
+   HOMEPAGE — ENTRY ANIMATION
+======================================== */
+
+@keyframes homepage-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.homepage-enter {
+  animation: homepage-enter 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Privacy and Terms pages */
+@keyframes legal-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.legal-page-enter {
+  animation: legal-page-enter 450ms ease-out both;
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .homepage-enter,
+  .legal-page-enter {
+    animation: none;
+  }
+}
