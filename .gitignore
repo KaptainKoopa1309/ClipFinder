@@ -41,3 +41,6 @@ downloads/*
 *.mov
 *.mkv
 *.zip
+
+# Hand-picked montage clips (local)
+Best Clips/

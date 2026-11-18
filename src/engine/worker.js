@@ -2,7 +2,7 @@
 import { loadProfile, CounterReader } from './hud.js';
 import { openVideo, calibrate, scan, readMatchEnd, cutClip, calibrateLive, scanLive, decodeFailed } from './video.js';
 import { analyse, analyseLive, spliceMatchEnd } from './detect.js';
-import { loadLiveProfile, learnName, followFeed, deathTimes, liveRanges, counterKills, counterReadable, counterBacked, withoutCounter, fuseKills, popupEvents } from './live.js';
+import { loadLiveProfile, learnName, followFeed, deathTimes, liveRanges, counterKills, counterReadable, counterBacked, withoutCounter, fuseKills, popupEvents, roundBased, roundRanges } from './live.js';
 import {
   MAX_SCAN_WORKERS,
   MAX_SINGLE_CLIP_BYTES,
@@ -268,17 +268,33 @@ async function finishLive(v, rules, timings, lap, P, feed, result, data) {
   }
   lap('follow');
   const deaths = deathTimes(result.readings, feedDeaths, P);
+  // Search & Destroy and other round modes: the counter keeps its points through a death.
+  const mode = roundBased(result.readings, deaths, P), rounds = mode.roundBased;
+  log(rounds
+    ? `Round-based match (Search & Destroy style): the points counter kept its value after ${mode.kept} deaths `
+      + `(reset after ${mode.reset}); round rules used.`
+    : `Respawn match: the points counter reset after ${mode.reset} deaths (kept after ${mode.kept}).`);
   // A blurred counter's misread digits look like points earned: when the popups and killfeed don't show most of
   // its kills (readable recordings: 89-100%), the kills come from those two alone.
-  const backed = counterBacked(result.readings, feedKills, P), misread = backed !== null && backed < .75;
+  const backed = counterBacked(result.readings, feedKills, P, 10, rounds), misread = backed !== null && backed < .75;
   const readings = misread ? withoutCounter(result.readings) : result.readings;
   if (misread) log(`Points counter: only ${Math.round(backed * 100)}% of its kills show in the popups or killfeed (misread digits); not used.`);
-  const counter = counterKills(readings, P.streaks, P), popups = popupEvents(readings, P).reduce((a, [, n]) => a + n, 0);
-  const kills = fuseKills(readings, feedKills, deaths, P.streaks, P);
+  const counter = counterKills(readings, P.streaks, P, 15, 2, rounds), popups = popupEvents(readings, P).reduce((a, [, n]) => a + n, 0);
+  const kills = fuseKills(readings, feedKills, deaths, P.streaks, P, { feedDeaths, roundBased: rounds });
   log(`Kills: points counter ${counter.length} (${P.streaks.names.join(' / ')}), score popups ${popups}, killfeed ${feedKills.length}; `
     + `combined ${kills.length}${counterReadable(readings, P) ? '' : ' (points counter not readable)'}.`);
-  const analysis = analyseLive(result, kills, deaths, liveRanges(result.readings, deaths, rules.respawn_settle, P), rules);
+  let ranges = liveRanges(result.readings, deaths, rules.respawn_settle, P);
+  // Without the counter (misread), its returning value can't mark the next round; killcams and deaths still do.
+  if (rounds && !misread) ranges = ranges.concat(roundRanges(result.readings, deaths, rules.respawn_settle, P));
+  const analysis = analyseLive(result, kills, deaths, ranges, rules);
   lap('analyse');
+  // Where each clip's kills came from, so a wrong clip shows which layer to look at.
+  const clock = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(2).padStart(5, '0')}`;
+  for (const clip of analysis.clips) {
+    const own = (kills.layers || []).filter(([t]) => clip.kill_times.some((k) => Math.abs(k - t) < .01));
+    log(`Clip ${clip.id} (${clip.kills} kills, ${clock(clip.start)}-${clock(clip.end)}): `
+      + (own.map(([t, layer]) => `${clock(t)} ${layer}`).join(', ') || 'no layer recorded'));
+  }
   log(`Followed player's name learned from the killfeed (${template.w}x${template.h} px); `
     + `${kills.length} kills, ${deaths.length} deaths.`);
   send('done', {

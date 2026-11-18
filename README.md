@@ -26,27 +26,16 @@ npm run preview
 
 The deployable site is written to `dist/`.
 
-## Cloudflare Workers (matches the existing `workers.dev` hosting)
+## Vercel (live at https://tryclipfinder.vercel.app)
 
-This project includes `wrangler.jsonc` with `dist/` as the static asset directory and SPA fallback enabled.
+The site is hosted on Vercel. `vercel.json` sets the Vite build (`npm run build` → `dist/`), rewrites every non-file path to `index.html` so React routes such as `/contact`, `/privacy`, and `/terms` work on refresh, and applies the production security headers.
 
-```bash
-npm run deploy       # build, then deploy to Cloudflare Workers
-```
-
-Wrangler will prompt you to authenticate with Cloudflare the first time. The Worker is named `clipfinder`; change `name` in `wrangler.jsonc` if you want a different Worker. The SPA fallback serves React routes such as `/contact`, `/privacy`, and `/terms` from `index.html`.
-
-### Cloudflare Pages alternative
-
-- Build command: `npm run build`
-- Build output directory: `dist`
-- The `public/_redirects` file provides SPA route fallback for `/contact`, `/privacy`, and `/terms`.
+Import the GitHub repository in the Vercel dashboard (framework preset: Vite) and every push to the production branch deploys automatically. Vercel picks the Node.js version from `engines.node` in `package.json`.
 
 ## Project structure
 
 ```text
 public/
-  _redirects
   hud-profile.json
   live-profile.json
   assets/
@@ -97,7 +86,7 @@ The React migration preserves the original browser scanner modules rather than t
 - Recordings are limited to 4 GiB, two hours, and roughly 4K pixel dimensions. These checks are repeated inside the scanner before decoding/packet analysis.
 - Clip cutting has per-clip and per-scan output-memory limits. Batch ZIP/share generation is limited to 256 MiB; larger batches should be downloaded clip by clip.
 - Generated clip and archive names are sanitized before download.
-- `public/_headers` applies production browser security headers (including an enforced Content Security Policy) when deployed through Cloudflare Workers Static Assets or Cloudflare Pages. Verify the headers against the deployed response after deployment, especially if you later add third-party scripts, fonts, analytics, or embedded content.
+- `vercel.json` applies production browser security headers (including an enforced Content Security Policy) on Vercel. Verify the headers against the deployed response after deployment, especially if you later add third-party scripts, fonts, analytics, or embedded content.
 - The Privacy Policy describes local video processing and hosting-provider request metadata. Update it if analytics, cookies, APIs, or other external processing are introduced.
 
 Run `npm install` to create/update `package-lock.json`, commit that lockfile, then use `npm ci` for repeatable installs. Review `npm audit` output before upgrading dependencies; do not force major-version upgrades automatically.

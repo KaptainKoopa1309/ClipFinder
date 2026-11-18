@@ -1171,6 +1171,67 @@ export function liveRanges(readings, deaths, settle, P) {
   return ranges;
 }
 
+/** held_values: [time, value] for each counter value read the same `hold` times in a row (own view). */
+function heldValues(readings, P, hold = 4) {
+  const out = [];
+  let run = [];
+  for (const r of readings) {
+    if (isAway(r, P) || !readable(r, P)) continue;
+    run = run.length && run[run.length - 1].points === r.points && r.time - run[run.length - 1].time <= 1 ? [...run, r] : [r];
+    if (run.length === hold) out.push([run[0].time, r.points]);
+  }
+  return out;
+}
+
+/** round_based: whether the counter keeps its points through deaths (Search & Destroy and other round modes)
+ * instead of going back to the first streak's cost on respawn. Needs no picture of the mode's HUD.
+ * {roundBased, kept, reset}: deaths after which the counter did not / did go back up to its start value. */
+export function roundBased(readings, deaths, P, look = 25) {
+  const held = heldValues(readings, P);
+  if (!held.length) return { roundBased: false, kept: 0, reset: 0 };
+  // The start value (no points earned yet): the highest value held on two separate occasions (one misread is not).
+  const seen = new Map();
+  for (const [, v] of held) seen.set(v, (seen.get(v) || 0) + 1);
+  const repeated = [...seen].filter(([, n]) => n >= 2).map(([v]) => v);
+  if (!repeated.length) return { roundBased: false, kept: 0, reset: 0 };
+  const top = Math.max(...repeated);
+  let kept = 0, reset = 0;
+  for (const d of deaths) {
+    const before = held.filter(([t]) => t <= d - .25).pop();
+    if (!before || before[1] >= top - 50) continue;   // nothing earned: says nothing
+    // ...and the value must still be on screen shortly before the death.
+    if (!readings.some((r) => r.time <= d && r.time >= d - 10 && !isAway(r, P) && readable(r, P) && r.points === before[1])) continue;
+    if (held.some(([t, v]) => t > d && t <= d + look && v === top)) reset++;
+    else if (held.some(([t, v]) => t > d && v === before[1])) kept++;
+  }
+  return { roundBased: kept >= 3 && kept >= 2 * reset, kept, reset };
+}
+
+/** round_ranges: what a round-based recording leaves out besides killcams: from each death until the player's
+ * own counter value is back (the next round; spectating shows teammates), and each 3 s+ own-view stretch with no
+ * readable counter (round-end banner, scoreboard, loadout screen), which also ends a survivor's streak. */
+export function roundRanges(readings, deaths, settle, P, gap = 3, longest = 180) {
+  const ranges = [], held = heldValues(readings, P);
+  const good = readings.filter((r) => !isAway(r, P) && readable(r, P)).map((r) => r.time);
+  for (const d of deaths) {
+    const before = held.filter(([t]) => t <= d - .25).pop();
+    // The player's own view comes back after a break (killcam, spectating, round end); the dead player's counter
+    // can stay up a moment first, and a counter that never stopped reading means no real death.
+    const i = good.findIndex((t, k) => t > d && k > 0 && t - good[k - 1] >= 2);
+    const resumed = i >= 0 && good[i] <= d + longest ? good[i] : null;
+    const back = before && resumed !== null && held.find(([t, v]) => t >= resumed - .1 && t <= d + longest && v === before[1]);
+    ranges.push({ start: d, end: back ? back[0] : d + settle, cuts: [d], away: false });
+  }
+  let last = null;
+  for (const r of readings) {
+    if (isAway(r, P)) continue;
+    if (!readable(r, P)) continue;
+    if (last !== null && r.time - last >= gap) ranges.push({ start: last, end: r.time + settle, cuts: [last], away: true });
+    last = r.time;
+  }
+  return ranges;
+}
+
 // ---- kills from the points counter ----
 
 const readable = (r, P) => r.points != null && (r.points_match || 0) >= P.counter_conf;
@@ -1206,11 +1267,13 @@ function unreadFor(readings, P) {
 const plausible = (gain, dt, burst = 300, rate = 100) => gain <= burst + rate * dt;
 
 /** counter_points: points earned in each life, [[time, points, life]] for each accepted value. */
-export function counterPoints(readings, costs, P, hold = 2, undo = 5, settle = 1, streaks = false) {
+export function counterPoints(readings, costs, P, hold = 2, undo = 5, settle = 1, streaks = false, persist = false) {
   const unread = unreadFor(readings, P);
   let awayAt = null, run = [], died = false, reset = false, cam = false;
   const steady = [];
   for (const r of readings) {
+    // Round-based modes keep the points through a death: the counter just goes unread for a while.
+    if (persist && isAway(r, P)) { awayAt = r.time; run = []; continue; }
     if (isAway(r, P)) {                // a killcam or spectating: a death
       cam = (cam && died) || r.killcam >= P.away_score || r.killed_by >= P.away_score;
       awayAt = r.time; run = []; died = true; reset = false; continue;
@@ -1282,10 +1345,10 @@ export function counterPoints(readings, costs, P, hold = 2, undo = 5, settle = 1
 }
 
 /** counter_kills: each rise of a kill's points seen within `quick` s of the previous reading is a kill. */
-export function counterKills(readings, streaks, P, slack = 15, quick = 2) {
+export function counterKills(readings, streaks, P, slack = 15, quick = 2, persist = false) {
   const found = [], unread = unreadFor(readings, P);
   let last = null;
-  for (const [t, p, life, k, lit] of counterPoints(readings, streaks.costs, P, 2, 5, 1, true)) {
+  for (const [t, p, life, k, lit] of counterPoints(readings, streaks.costs, P, 2, 5, 1, true, persist)) {
     // Unlock kills count only when a streak icon confirms them (streak costs vary per player).
     if (last && life === last[2] && (k === last[3] || lit) && unread(t) <= quick) {
       for (let n = Math.floor((p - last[1] + slack) / streaks.kill_points); n > 0; n--) found.push(t);
@@ -1303,8 +1366,8 @@ export function counterReadable(readings, P, share = .5) {
 
 /** counter_backed: the share of the counter's kills a popup or killfeed row also shows (2 s before to 3 s after),
  * or null with fewer than `enough` to judge. Blurred digits (425 read as 5) make kills nothing else shows. */
-export function counterBacked(readings, feed, P, enough = 10) {
-  const counter = counterKills(readings, P.streaks, P), popups = popupEvents(readings, P);
+export function counterBacked(readings, feed, P, enough = 10, persist = false) {
+  const counter = counterKills(readings, P.streaks, P, 15, 2, persist), popups = popupEvents(readings, P);
   if (counter.length < enough) return null;
   let backed = 0;
   for (const t of new Set(counter)) {
@@ -1319,8 +1382,8 @@ export function counterBacked(readings, feed, P, enough = 10) {
 export const withoutCounter = (readings) => readings.map((r) => ({ ...r, points: null, points_match: 0 }));
 
 /** counter_steps: [time, points] for each rise of the counter's points within a life. */
-export function counterSteps(readings, costs, P) {
-  const pts = counterPoints(readings, costs, P), out = [];
+export function counterSteps(readings, costs, P, persist = false) {
+  const pts = counterPoints(readings, costs, P, 2, 5, 1, false, persist), out = [];
   for (let i = 1; i < pts.length; i++) if (pts[i][2] === pts[i - 1][2] && pts[i][1] > pts[i - 1][1]) out.push([pts[i][0], pts[i][1] - pts[i - 1][1]]);
   return out;
 }
@@ -1369,11 +1432,29 @@ export function lastGasp(readings, deaths, P) {
   return out;
 }
 
-/** fuse_kills: kills from the points counter, then the score popup, then the killfeed (see live_analysis.fuse_kills). */
-export function fuseKills(readings, feed, deaths, streaks, P, lag = [-1.5, 3], near = 3) {
-  const steps = counterSteps(readings, streaks.costs, P), popups = popupEvents(readings, P);
+/** trade_ok: whether killfeed row `f`, just before death `d`, can be a kill the counter had no time to show.
+ * Rows from other fights fill the killfeed just before a death; the counter and popups vet them. */
+function tradeOk(f, d, readings, feedDeaths, popups, P) {
+  const own = readings.filter((r) => !isAway(r, P) && readable(r, P));
+  const before = own.filter((r) => r.time <= f + .25).pop();
+  // The counter kept reading between the row and the death and never fell: not the player's kill.
+  const watched = own.filter((r) => r.time >= f + .5 && r.time <= d - .25);
+  if (before && watched.length >= 2 && watched.every((r) => r.points >= before.points)) return false;
+  // Next to the player's own death row, a kill needs its score popup too (the death row itself is no kill).
+  const deathRow = feedDeaths.some((x) => Math.abs(x - f) <= .75);
+  if (deathRow && !popups.some(([p]) => p - f >= -1 && p - f <= 1.5)
+    && !readings.some((r) => r.time >= f - 1 && r.time <= f + 1.5 && (r.popup_match || 0) >= P.popup_conf && r.popup >= 85)) return false;
+  return true;
+}
+
+/** fuse_kills: kills from the points counter, then the score popup, then the killfeed (see live_analysis.fuse_kills).
+ * `roundBased` (Search & Destroy): the counter keeps its points through deaths, and a killfeed row counts only
+ * with a streak kill's small points rise (never as a trade or while the counter is unread). */
+export function fuseKills(readings, feed, deaths, streaks, P, { feedDeaths = [], roundBased = false, lag = [-1.5, 3], near = 3 } = {}) {
+  const persist = roundBased;
+  const steps = counterSteps(readings, streaks.costs, P, persist), popups = popupEvents(readings, P);
   // A multi-kill jump can be a lost digit (393 then 86): the popups and killfeed cap it.
-  const raw = counterKills(readings, streaks, P), counter = [];
+  const raw = counterKills(readings, streaks, P, 15, 2, persist), counter = [];
   for (const t of [...new Set(raw)].sort((a, b) => a - b)) {
     let n = raw.filter((x) => x === t).length;
     if (n > 1) {
@@ -1387,17 +1468,20 @@ export function fuseKills(readings, feed, deaths, streaks, P, lag = [-1.5, 3], n
   const good = readings.filter((r) => readable(r, P) && !isAway(r, P)).map((r) => r.time);
   const readNear = (t, a, b) => good.some((g) => g >= t + a && g <= t + b);
   let kills = [...counter];
+  const extra = [];   // [time, layer] of kills not from the counter, for the per-clip log
   for (const [t, n] of lastGasp(readings, deaths, P)) {
-    if (!big.some((c) => Math.abs(t - c) <= 1)) for (let i = 0; i < n; i++) kills.push(t);
+    if (!big.some((c) => Math.abs(t - c) <= 1)) for (let i = 0; i < n; i++) { kills.push(t); extra.push([t, 'last reading']); }
   }
   // Next to an unconfirmed unlock, each counter kill explains only one popup kill.
-  const points = counterPoints(readings, streaks.costs, P, 2, 5, 1, true);
+  const points = counterPoints(readings, streaks.costs, P, 2, 5, 1, true, persist);
   const unlocks = points.slice(1).filter((p, i) => p[2] === points[i][2] && p[3] > points[i][3] && !p[4]).map((p) => p[0]);
   const spare = [...big], fromCounter = counter.length;
   for (const [t, n] of popups) {
     if (!unlocks.some((u) => t - u >= -near && t - u <= lag[1])) {
       const explained = big.some((c) => t - c >= lag[0] && t - c <= lag[1]);
-      if (!explained && !kills.some((k) => Math.abs(t - k) <= near) && readNear(t, -5, 3)) for (let i = 0; i < n; i++) kills.push(t - .5);
+      if (!explained && !kills.some((k) => Math.abs(t - k) <= near) && readNear(t, -5, 3)) {
+        for (let i = 0; i < n; i++) { kills.push(t - .5); extra.push([t - .5, 'popup']); }
+      }
       continue;
     }
     let unexplained = 0;
@@ -1406,11 +1490,11 @@ export function fuseKills(readings, feed, deaths, streaks, P, lag = [-1.5, 3], n
       if (c < 0) unexplained++; else spare.splice(c, 1);
     }
     if (unexplained && !kills.slice(fromCounter).some((k) => Math.abs(t - k) <= near) && readNear(t, -5, 3)) {
-      for (let i = 0; i < unexplained; i++) kills.push(t - .5);
+      for (let i = 0; i < unexplained; i++) { kills.push(t - .5); extra.push([t - .5, 'popup']); }
     }
   }
   kills.sort((a, b) => a - b);
-  const sortedFeed = [...feed].sort((a, b) => a - b), added = [];
+  const sortedFeed = [...feed].sort((a, b) => a - b), added = [], tradeUsed = new Set();
   // A counter kill explains a killfeed row from 2 s before it to 3 s after.
   const sees = (f, k) => (counter.includes(k) ? f - k >= -2 && f - k <= 3 : Math.abs(f - k) <= near);
   const explainedRows = feed.filter((f) => kills.some((k) => sees(f, k)));
@@ -1418,13 +1502,24 @@ export function fuseKills(readings, feed, deaths, streaks, P, lag = [-1.5, 3], n
     if (kills.some((k) => sees(f, k)) || added.some((k) => Math.abs(f - k) > 0 && Math.abs(f - k) <= 1)) continue;
     if (explainedRows.some((e) => f - e > 0 && f - e <= 4)) continue;   // the same row seen again as it moves down
     const small = steps.some(([t, p]) => Math.abs(t - f) <= 2.5 && p >= 20 && p < 85);
-    const trade = deaths.some((d) => d - f >= -1 && d - f <= near);
-    if (small || trade || !readNear(f, -2, 2)) added.push(f);
+    if (small) { added.push(f); extra.push([f, 'killfeed (streak-kill points)']); continue; }
+    // Round-based: the counter decides. Its 3 s+ gaps are round breaks (round_ranges), and the round-end
+    // banner and scoreboard show names in rows that look like killfeed rows.
+    if (roundBased) continue;
+    if (!readNear(f, -2, 2)) { added.push(f); extra.push([f, 'killfeed (counter unread)']); continue; }
+    // A trade: at most one kill per death, and only one the counter and popups don't contradict.
+    const d = deaths.find((x) => x - f >= -1 && x - f <= near && !tradeUsed.has(x));
+    if (d !== undefined && tradeOk(f, d, readings, feedDeaths, popups, P)) { tradeUsed.add(d); added.push(f); extra.push([f, 'killfeed (trade)']); }
   }
-  const used = new Set(), timed = [];
+  const used = new Set(), timed = [], layers = [];
   for (const k of kills) {
     const i = sortedFeed.findIndex((x, j) => !used.has(j) && x >= k - 2 && x <= k + 1);
+    const fromCounterHere = counter.includes(k) && layers.length < counter.length;
     if (i >= 0 && counter.includes(k)) { used.add(i); timed.push(sortedFeed[i]); } else timed.push(k);
+    if (fromCounterHere) layers.push([timed[timed.length - 1], 'counter']);
   }
-  return timed.concat(added).sort((a, b) => a - b);
+  const out = timed.concat(added).sort((a, b) => a - b);
+  // Which layer each kill came from (same length as the kills): [time, layer].
+  out.layers = layers.concat(extra).sort((a, b) => a[0] - b[0]);
+  return out;
 }
