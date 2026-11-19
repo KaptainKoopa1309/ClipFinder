@@ -1253,6 +1253,25 @@ export function iconUnlocks(readings, count, P, hold = 2) {
   return found;
 }
 
+/** icon_uses: times a lit streak icon went out (the streak was called in), or null when the icons were never
+ * read. Lit for `hold` readings, then unlit for `hold`, in the player's own view. */
+export function iconUses(readings, count, P, hold = 4) {
+  if (!readings.some((r) => r.icons && r.icons.length)) return null;
+  const found = [], state = new Array(count).fill(null), run = new Array(count).fill(null);
+  for (const r of readings) {
+    if (!r.icons || !r.icons.length || isAway(r, P)) continue;
+    r.icons.slice(0, count).forEach((share, k) => {
+      const now = share >= P.icon_lit;
+      run[k] = run[k] && run[k][0] === now ? [now, run[k][1] + 1, run[k][2]] : [now, 1, r.time];
+      if (run[k][1] === hold && state[k] !== now) {
+        if (!now && state[k] === true) found.push(run[k][2]);
+        state[k] = now;
+      }
+    });
+  }
+  return found.sort((a, b) => a - b);
+}
+
 /** unread_for: for a time t, seconds since the counter was last read well before t (own view). */
 function unreadFor(readings, P) {
   const seen = readings.filter((r) => !isAway(r, P) && readable(r, P)).map((r) => r.time);
@@ -1450,7 +1469,10 @@ function tradeOk(f, d, readings, feedDeaths, popups, P) {
 /** fuse_kills: kills from the points counter, then the score popup, then the killfeed (see live_analysis.fuse_kills).
  * `roundBased` (Search & Destroy): the counter keeps its points through deaths, and a killfeed row counts only
  * with a streak kill's small points rise (never as a trade or while the counter is unread). */
-export function fuseKills(readings, feed, deaths, streaks, P, { feedDeaths = [], roundBased = false, lag = [-1.5, 3], near = 3 } = {}) {
+export function fuseKills(readings, feed, deaths, streaks, P, {
+  feedDeaths = [], roundBased = false, lag = [-1.5, 3], near = 3,
+  minConfirmed = 5, confirmShare = .5, streakRun = 45, seenAgain = 6,
+} = {}) {
   const persist = roundBased;
   const steps = counterSteps(readings, streaks.costs, P, persist), popups = popupEvents(readings, P);
   // A multi-kill jump can be a lost digit (393 then 86): the popups and killfeed cap it.
@@ -1459,12 +1481,47 @@ export function fuseKills(readings, feed, deaths, streaks, P, { feedDeaths = [],
     let n = raw.filter((x) => x === t).length;
     if (n > 1) {
       const within = (x) => x - t >= -2 && x - t <= 3;
-      const seen = Math.max(popups.filter(([p]) => within(p)).reduce((s, [, m]) => s + m, 0), feed.filter(within).length);
+      let seen = Math.max(popups.filter(([p]) => within(p)).reduce((s, [, m]) => s + m, 0), feed.filter(within).length);
+      // A clean double (two kills' points with medals, 185-275) is real even when the killfeed shows one row.
+      const jump = steps.find(([s]) => Math.abs(s - t) < .01);
+      if (seen === 1 && n === 2 && jump && jump[1] >= 2 * streaks.kill_points - 15 && jump[1] <= 2 * streaks.kill_points + 75) seen = 2;
       if (seen) n = Math.min(n, seen);
     }
     for (let i = 0; i < n; i++) counter.push(t);
   }
+  // Objective points (Hardpoint Secure +100, a capture) move the counter and the popup like a kill but put no
+  // row in the killfeed. Where the killfeed is followed well (it shows most counter kills), each counter or
+  // popup kill needs a row of its own, 2 s before to 3 s after. Elsewhere the counter is trusted as before.
+  const sortedRows = [...feed].sort((a, b) => a - b), rowTaken = new Array(sortedRows.length).fill(false);
+  const rowNear = (t) => sortedRows.findIndex((f, j) => !rowTaken[j] && f - t >= -2 && f - t <= 3);
+  // Judged on the counter's kills, or the popups' when the counter is off (misread digits) or unread.
+  const basis = counter.length >= minConfirmed ? counter : popups.flatMap(([t, n]) => new Array(n).fill(t));
+  const nearRows = basis.filter((t) => sortedRows.some((f) => f - t >= -2 && f - t <= 3)).length;
+  const feedTrusted = basis.length >= minConfirmed && nearRows >= confirmShare * basis.length;
+  const dropped = [];   // [time, reason] of rises taken for objective points
+  if (feedTrusted) {
+    // Closest pairs first, so a Hardpoint Secure just before a kill does not take the kill's row.
+    const pairs = [];
+    counter.forEach((t, i) => sortedRows.forEach((f, j) => { if (f - t >= -2 && f - t <= 3) pairs.push([Math.abs(f - t), i, j]); }));
+    pairs.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const hasRow = new Array(counter.length).fill(false);
+    for (const [, i, j] of pairs) if (!hasRow[i] && !rowTaken[j]) { hasRow[i] = true; rowTaken[j] = true; }
+    // One jump of 200+ in a single reading (a collateral, an explosive) is a multi-kill by itself: the killfeed
+    // often shows such rows as one. One row confirms the whole jump (its size was already capped above).
+    counter.forEach((t, i) => { if (!hasRow[i] && counter.some((u, k) => k !== i && u === t && hasRow[k])) hasRow[i] = true; });
+    const kept = counter.filter((t, i) => hasRow[i] || (dropped.push([t, 'counter rise with no killfeed row']), false));
+    counter.length = 0;
+    counter.push(...kept);
+  }
   const big = counter;   // popups the counter's kills explain (not its unlocks: see counterKills)
+  // A popup kill the counter does not explain needs its own row too.
+  const popupOk = (t) => {
+    if (!feedTrusted) return true;
+    const j = rowNear(t);
+    if (j < 0) { dropped.push([t, 'popup rise with no killfeed row']); return false; }
+    rowTaken[j] = true;
+    return true;
+  };
   const good = readings.filter((r) => readable(r, P) && !isAway(r, P)).map((r) => r.time);
   const readNear = (t, a, b) => good.some((g) => g >= t + a && g <= t + b);
   let kills = [...counter];
@@ -1480,7 +1537,7 @@ export function fuseKills(readings, feed, deaths, streaks, P, { feedDeaths = [],
     if (!unlocks.some((u) => t - u >= -near && t - u <= lag[1])) {
       const explained = big.some((c) => t - c >= lag[0] && t - c <= lag[1]);
       if (!explained && !kills.some((k) => Math.abs(t - k) <= near) && readNear(t, -5, 3)) {
-        for (let i = 0; i < n; i++) { kills.push(t - .5); extra.push([t - .5, 'popup']); }
+        for (let i = 0; i < n; i++) if (popupOk(t)) { kills.push(t - .5); extra.push([t - .5, 'popup']); }
       }
       continue;
     }
@@ -1490,19 +1547,23 @@ export function fuseKills(readings, feed, deaths, streaks, P, { feedDeaths = [],
       if (c < 0) unexplained++; else spare.splice(c, 1);
     }
     if (unexplained && !kills.slice(fromCounter).some((k) => Math.abs(t - k) <= near) && readNear(t, -5, 3)) {
-      for (let i = 0; i < unexplained; i++) { kills.push(t - .5); extra.push([t - .5, 'popup']); }
+      for (let i = 0; i < unexplained; i++) if (popupOk(t)) { kills.push(t - .5); extra.push([t - .5, 'popup']); }
     }
   }
   kills.sort((a, b) => a - b);
   const sortedFeed = [...feed].sort((a, b) => a - b), added = [], tradeUsed = new Set();
+  const uses = iconUses(readings, streaks.costs.length, P);   // null: the icons were not read, so no check
   // A counter kill explains a killfeed row from 2 s before it to 3 s after.
   const sees = (f, k) => (counter.includes(k) ? f - k >= -2 && f - k <= 3 : Math.abs(f - k) <= near);
   const explainedRows = feed.filter((f) => kills.some((k) => sees(f, k)));
   for (const f of sortedFeed) {
     if (kills.some((k) => sees(f, k)) || added.some((k) => Math.abs(f - k) > 0 && Math.abs(f - k) <= 1)) continue;
-    if (explainedRows.some((e) => f - e > 0 && f - e <= 4)) continue;   // the same row seen again as it moves down
+    // The same row seen again as it moves down (rows stay up about 5-6 s).
+    if (explainedRows.some((e) => f - e > 0 && f - e <= seenAgain)) continue;
+    // A scorestreak kill gives only ~25 points; an assist gives the same, so a streak must have been called in.
     const small = steps.some(([t, p]) => Math.abs(t - f) <= 2.5 && p >= 20 && p < 85);
-    if (small) { added.push(f); extra.push([f, 'killfeed (streak-kill points)']); continue; }
+    const streakOn = uses === null || uses.some((u) => f - u >= -1 && f - u <= streakRun);
+    if (small && streakOn) { added.push(f); extra.push([f, 'killfeed (streak-kill points)']); continue; }
     // Round-based: the counter decides. Its 3 s+ gaps are round breaks (round_ranges), and the round-end
     // banner and scoreboard show names in rows that look like killfeed rows.
     if (roundBased) continue;
@@ -1521,5 +1582,8 @@ export function fuseKills(readings, feed, deaths, streaks, P, { feedDeaths = [],
   const out = timed.concat(added).sort((a, b) => a - b);
   // Which layer each kill came from (same length as the kills): [time, layer].
   out.layers = layers.concat(extra).sort((a, b) => a[0] - b[0]);
+  // Rises left out as objective points, for the log.
+  out.dropped = dropped.sort((a, b) => a[0] - b[0]);
+  out.feedTrusted = feedTrusted;
   return out;
 }

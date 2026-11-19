@@ -283,6 +283,10 @@ async function finishLive(v, rules, timings, lap, P, feed, result, data) {
   const kills = fuseKills(readings, feedKills, deaths, P.streaks, P, { feedDeaths, roundBased: rounds });
   log(`Kills: points counter ${counter.length} (${P.streaks.names.join(' / ')}), score popups ${popups}, killfeed ${feedKills.length}; `
     + `combined ${kills.length}${counterReadable(readings, P) ? '' : ' (points counter not readable)'}.`);
+  log(kills.feedTrusted
+    ? `Objective points: ${kills.dropped.length} counter/popup rises had no killfeed row (Hardpoint Secure, captures) and were not counted`
+      + (kills.dropped.length ? ` (at ${kills.dropped.map(([t]) => t.toFixed(1)).join(', ')} s).` : '.')
+    : 'Objective points: the killfeed did not show enough of the kills to check the counter against; counter used as read.');
   let ranges = liveRanges(result.readings, deaths, rules.respawn_settle, P);
   // Without the counter (misread), its returning value can't mark the next round; killcams and deaths still do.
   if (rounds && !misread) ranges = ranges.concat(roundRanges(result.readings, deaths, rules.respawn_settle, P));
