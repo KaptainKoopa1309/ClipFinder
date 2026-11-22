@@ -1043,9 +1043,9 @@ function deathRows(masks, sample, template, threshold = .55) {
 
 /** RowTracker: see live_analysis.RowTracker. */
 export class RowTracker {
-  constructor(pitch = 35, { lose = 1, hold = 2.5, memory = 10, same = .5, clean = .58, comeback = 1, keep = 4, confirm = 1 } = {}) {
-    Object.assign(this, { pitch, lose, hold, memory, same, clean, comeback, keep, confirm });
-    this.active = []; this.hidden = []; this.pending = []; this.events = [];
+  constructor(pitch = 35, { lose = 1, hold = 2.5, memory = 10, same = .5, clean = .58, comeback = 1, keep = 4, confirm = 1, back = 5, again = .6 } = {}) {
+    Object.assign(this, { pitch, lose, hold, memory, same, clean, comeback, keep, confirm, back, again });
+    this.active = []; this.hidden = []; this.pending = []; this.events = []; this.retired = [];
     this.backAt = -1e9; this.awayNow = false;
   }
 
@@ -1061,6 +1061,9 @@ export class RowTracker {
   feed(t, detections) {
     if (this.awayNow) { this.backAt = t; this.awayNow = false; }
     this.hidden = this.hidden.filter((r) => t - r.t <= this.memory && t - this.backAt <= this.comeback);
+    // Rows lost for over `hold` s are kept `back` s more: the killfeed can be hidden (a Predator Missile view,
+    // the scoreboard) and show the same rows again afterwards.
+    this.retired = this.retired.concat(this.active.filter((r) => t - r.t > this.hold)).filter((r) => t - r.t <= this.back);
     this.active = this.active.filter((r) => t - r.t <= this.hold);
     const pairs = [];
     detections.forEach(([y, sig], i) => {
@@ -1090,6 +1093,20 @@ export class RowTracker {
         this.hidden = this.hidden.filter((r) => r !== back);
         back.y = y; back.t = t;
         this.active.push(back);
+        return;
+      }
+      // A lost row seen again: not at its old place's top, but below a newer row (a new kill enters at the top).
+      const below = detections.some(([y2], k) => k !== i && y2 < y - 8);
+      let old = null, oldBest = -Infinity;
+      for (const r of this.retired) {
+        if (y < r.y - 8) continue;
+        const s = this.similarity(sig, r);
+        if (s > oldBest) { oldBest = s; old = r; }
+      }
+      if (below && old && oldBest >= this.again) {
+        this.retired = this.retired.filter((r) => r !== old);
+        old.y = y; old.t = t;
+        this.active.push(old);
       } else unmatched.push([y, sig, score]);
     });
     const fresh = [];
@@ -1288,6 +1305,10 @@ const plausible = (gain, dt, burst = 300, rate = 100) => gain <= burst + rate * 
 /** counter_points: points earned in each life, [[time, points, life]] for each accepted value. */
 export function counterPoints(readings, costs, P, hold = 2, undo = 5, settle = 1, streaks = false, persist = false) {
   const unread = unreadFor(readings, P);
+  // After the last streak the counter starts over for the first one, keeping the extra points (64 left to the
+  // 1000 EMP, then a 132-point kill: 432 left to the next 500 Hunter Killer at 1500). Icon slots repeat too.
+  const slots = costs.length, top = costs[slots - 1];
+  costs = [0, 1, 2, 3].flatMap((round) => costs.map((c) => c + round * top));
   let awayAt = null, run = [], died = false, reset = false, cam = false;
   const steady = [];
   for (const r of readings) {
@@ -1313,11 +1334,11 @@ export function counterPoints(readings, costs, P, hold = 2, undo = 5, settle = 1
       died = false;
     }
   }
-  const unlocks = iconUnlocks(readings, costs.length, P, 6);   // 1.5 s: a lighting icon glows into its neighbour briefly
+  const unlocks = iconUnlocks(readings, slots, P, 6);   // 1.5 s: a lighting icon glows into its neighbour briefly
   const take = (j, t) => {
-    const i = (unlocks[j] || []).findIndex((u) => Math.abs(u - t) <= 1.5);
+    const i = (unlocks[j % slots] || []).findIndex((u) => Math.abs(u - t) <= 1.5);
     if (i < 0) return false;
-    unlocks[j].splice(i, 1);
+    unlocks[j % slots].splice(i, 1);
     return true;
   };
   const out = [];   // [time, value, points, life, next streak]
@@ -1336,7 +1357,7 @@ export function counterPoints(readings, costs, P, hold = 2, undo = 5, settle = 1
     } else if (v < last) {
       // A fall can still be an unlock (151 -> 95 when 256 points pass the 500 streak): its icon lights.
       const next = steady[i + 1], rises = next && next[0] - t <= 2 && next[1] > v && !next[2];
-      const lit = (unlocks[k] || []).some((u) => Math.abs(u - t) <= 1.5);
+      const lit = (unlocks[k % slots] || []).some((u) => Math.abs(u - t) <= 1.5);
       if (lit && !rises && k + 1 < costs.length && costs[k + 1] - v >= costs[k] && plausible(costs[k + 1] - v - earned, dt)) {
         take(k, t);
         litUnlocks.add(t);
@@ -1477,17 +1498,30 @@ export function fuseKills(readings, feed, deaths, streaks, P, {
   const steps = counterSteps(readings, streaks.costs, P, persist), popups = popupEvents(readings, P);
   // A multi-kill jump can be a lost digit (393 then 86): the popups and killfeed cap it.
   const raw = counterKills(readings, streaks, P, 15, 2, persist), counter = [];
+  // Rises less than 1 s apart are one burst (a 308-point double read as 3 kills over two readings).
+  const bursts = [];
   for (const t of [...new Set(raw)].sort((a, b) => a - b)) {
-    let n = raw.filter((x) => x === t).length;
+    const b = bursts[bursts.length - 1];
+    if (b && t - b.times[b.times.length - 1] <= 1) b.times.push(t); else bursts.push({ times: [t] });
+  }
+  // A row or popup backs only the burst nearest it: the next kill's row 2-3 s later is not this burst's.
+  const gapTo = (b, x) => Math.max(0, b.times[0] - x, x - b.times[b.times.length - 1]);
+  const nearestBurst = (x) => bursts.reduce((best, b) => (gapTo(b, x) < gapTo(best, x) ? b : best), bursts[0]);
+  for (const b of bursts) {
+    const times = b.times.flatMap((t) => raw.filter((x) => x === t));
+    let n = times.length;
     if (n > 1) {
-      const within = (x) => x - t >= -2 && x - t <= 3;
-      let seen = Math.max(popups.filter(([p]) => within(p)).reduce((s, [, m]) => s + m, 0), feed.filter(within).length);
+      const within = (x) => x - b.times[0] >= -2 && x - b.times[b.times.length - 1] <= 3 && nearestBurst(x) === b;
+      // Medal bonuses inflate the popup like the counter (two kills with medals: +308). Two or more rows mean the
+      // killfeed is showing this burst, so the rows decide; with one or none, the popup may show more.
+      const rows = feed.filter(within).length;
+      let seen = rows >= 2 ? rows : Math.max(popups.filter(([p]) => within(p)).reduce((s, [, m]) => s + m, 0), rows);
       // A clean double (two kills' points with medals, 185-275) is real even when the killfeed shows one row.
-      const jump = steps.find(([s]) => Math.abs(s - t) < .01);
+      const jump = b.times.length === 1 && steps.find(([s]) => Math.abs(s - b.times[0]) < .01);
       if (seen === 1 && n === 2 && jump && jump[1] >= 2 * streaks.kill_points - 15 && jump[1] <= 2 * streaks.kill_points + 75) seen = 2;
       if (seen) n = Math.min(n, seen);
     }
-    for (let i = 0; i < n; i++) counter.push(t);
+    counter.push(...times.slice(0, n));
   }
   // Objective points (Hardpoint Secure +100, a capture) move the counter and the popup like a kill but put no
   // row in the killfeed. Where the killfeed is followed well (it shows most counter kills), each counter or
@@ -1553,6 +1587,8 @@ export function fuseKills(readings, feed, deaths, streaks, P, {
   kills.sort((a, b) => a - b);
   const sortedFeed = [...feed].sort((a, b) => a - b), added = [], tradeUsed = new Set();
   const uses = iconUses(readings, streaks.costs.length, P);   // null: the icons were not read, so no check
+  // Streak kills' small rises (~25 each), with how many rows each can still back.
+  const smallRises = steps.filter(([, p]) => p >= 20 && p < 85).map(([t, p]) => ({ t, left: Math.max(1, Math.floor((p + 10) / 25)) }));
   // A counter kill explains a killfeed row from 2 s before it to 3 s after.
   const sees = (f, k) => (counter.includes(k) ? f - k >= -2 && f - k <= 3 : Math.abs(f - k) <= near);
   const explainedRows = feed.filter((f) => kills.some((k) => sees(f, k)));
@@ -1561,9 +1597,14 @@ export function fuseKills(readings, feed, deaths, streaks, P, {
     // The same row seen again as it moves down (rows stay up about 5-6 s).
     if (explainedRows.some((e) => f - e > 0 && f - e <= seenAgain)) continue;
     // A scorestreak kill gives only ~25 points; an assist gives the same, so a streak must have been called in.
-    const small = steps.some(([t, p]) => Math.abs(t - f) <= 2.5 && p >= 20 && p < 85);
+    // Each ~25-point rise backs one streak kill's row (two for ~50), in time order: a row that shows up later
+    // (the killfeed shifting as the player dies) does not ride on a rise an earlier row used.
+    const small = smallRises.findIndex((s) => s.left > 0 && Math.abs(s.t - f) <= 2.5);
     const streakOn = uses === null || uses.some((u) => f - u >= -1 && f - u <= streakRun);
-    if (small && streakOn) { added.push(f); extra.push([f, 'killfeed (streak-kill points)']); continue; }
+    if (small >= 0 && streakOn) {
+      smallRises[small].left--;
+      added.push(f); extra.push([f, 'killfeed (streak-kill points)']); continue;
+    }
     // Round-based: the counter decides. Its 3 s+ gaps are round breaks (round_ranges), and the round-end
     // banner and scoreboard show names in rows that look like killfeed rows.
     if (roundBased) continue;
@@ -1585,5 +1626,6 @@ export function fuseKills(readings, feed, deaths, streaks, P, {
   // Rises left out as objective points, for the log.
   out.dropped = dropped.sort((a, b) => a[0] - b[0]);
   out.feedTrusted = feedTrusted;
+  out.feedCheck = { rows: nearRows, of: basis.length, need: Math.max(minConfirmed, Math.ceil(confirmShare * basis.length)) };
   return out;
 }

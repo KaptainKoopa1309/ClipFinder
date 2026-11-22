@@ -286,7 +286,8 @@ async function finishLive(v, rules, timings, lap, P, feed, result, data) {
   log(kills.feedTrusted
     ? `Objective points: ${kills.dropped.length} counter/popup rises had no killfeed row (Hardpoint Secure, captures) and were not counted`
       + (kills.dropped.length ? ` (at ${kills.dropped.map(([t]) => t.toFixed(1)).join(', ')} s).` : '.')
-    : 'Objective points: the killfeed did not show enough of the kills to check the counter against; counter used as read.');
+    : `Killfeed check off: only ${kills.feedCheck.rows} of ${kills.feedCheck.of} counter kills had a killfeed row nearby `
+      + `(${kills.feedCheck.need} needed), so every counter rise was counted (objective points not filtered).`);
   let ranges = liveRanges(result.readings, deaths, rules.respawn_settle, P);
   // Without the counter (misread), its returning value can't mark the next round; killcams and deaths still do.
   if (rounds && !misread) ranges = ranges.concat(roundRanges(result.readings, deaths, rules.respawn_settle, P));
@@ -297,7 +298,9 @@ async function finishLive(v, rules, timings, lap, P, feed, result, data) {
   for (const clip of analysis.clips) {
     const own = (kills.layers || []).filter(([t]) => clip.kill_times.some((k) => Math.abs(k - t) < .01));
     log(`Clip ${clip.id} (${clip.kills} kills, ${clock(clip.start)}-${clock(clip.end)}): `
-      + (own.map(([t, layer]) => `${clock(t)} ${layer}`).join(', ') || 'no layer recorded'));
+      + (own.map(([t, layer]) => `${clock(t)} ${layer}`).join(', ') || 'no layer recorded')
+      + ` | killfeed rows: ${feedKills.filter((t) => t >= clip.start && t <= clip.end).map(clock).join(', ') || 'none'}`
+      + ` | own death rows: ${feedDeaths.filter((t) => t >= clip.start && t <= clip.end + 3).map(clock).join(', ') || 'none'}`);
   }
   log(`Followed player's name learned from the killfeed (${template.w}x${template.h} px); `
     + `${kills.length} kills, ${deaths.length} deaths.`);
