@@ -7,7 +7,7 @@ const recordingFormats = [
   { value: 'replay', label: 'Replay Mode recording' },
 ];
 
-const killOptions = [3, 4, 5, 6, 7, 8].map((value) => ({
+const killOptions = [2, 3, 4, 5, 6, 7, 8].map((value) => ({
   value,
   label: `${value} kills`,
 }));

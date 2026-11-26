@@ -11,7 +11,7 @@ Find every multi-kill streak in your COD Mobile Multiplayer recordings and downl
 3. **Choose the recording type:**
    - **Live Match:** you recorded your own screen while playing.
    - **Replay Mode:** you recorded a match replay that shows the spectator kill counter.
-4. **Set the minimum kills** for a clip (3 to 8).
+4. **Set the minimum kills** for a clip (2 to 8, default 3).
 5. **Click "Find clips"** and keep the page open while it scans.
 6. **Review and download.** Each recording gets its own section. Preview the clips, then download the ones you want, or use **Download all**.
 
