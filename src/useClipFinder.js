@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import JSZip from 'jszip';
 import {
-  MAX_BATCH_DOWNLOAD_BYTES,
   MAX_TOTAL_CLIP_BYTES,
   MAX_VIDEO_FILE_BYTES,
+  ZIP_PART_BYTES,
   validateVideoFile,
   safeFileStem,
 } from './security/resourceLimits.js';
+import { startClipSession } from './engine/clipStore.js';
 
 const TEXT = {
   pick: 'Select Match Recording',
@@ -35,6 +36,8 @@ const TEXT = {
   scanned: (recordings, clips) => `${recordings} recordings scanned, ${clips === 1 ? '1 clip' : `${clips} clips`} found. Open a recording to see only its clips.`,
   overallInfo: (count, sort) => `${count === 1 ? '1 clip' : `${count} clips`}, ${SORTS[sort].label}`,
   overallClipInfo: (seconds, start, file) => `${seconds} s long, starts at ${start} in ${file}`,
+  skippedClips: (count) => ` ${count === 1 ? '1 more clip was' : `${count} more clips were`} skipped because ClipFinder ran out of room for clips on this device.`,
+  memoryFull: (scanned, left) => `ClipFinder ran out of room for clips on this device after ${scanned === 1 ? '1 recording' : `${scanned} recordings`}. ${left === 1 ? '1 recording was' : `${left} recordings were`} not scanned. Download the clips you want, refresh the page, and scan the rest.`,
 };
 
 const SORTS = {
@@ -92,6 +95,7 @@ export function useClipFinder() {
   const [results, setResults] = useState([]);
   const [clips, setClips] = useState([]);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
 
   const workerRef = useRef(null);
   const runRef = useRef(null);
@@ -104,6 +108,7 @@ export function useClipFinder() {
   const clipsRef = useRef([]);
   const retainedClipBytesRef = useRef(0);
   const recordingIdRef = useRef(0);
+  const clipSessionRef = useRef(null);
 
   const releaseWakeLock = useCallback(async () => {
     try {
@@ -162,7 +167,7 @@ export function useClipFinder() {
     setClips(nextClips);
   }, []);
 
-  const finishQueue = useCallback(() => {
+  const finishQueue = useCallback((notScanned = 0) => {
     batchRef.current = null;
     runRef.current = null;
     window.removeEventListener('beforeunload', warnOnLeave);
@@ -171,7 +176,9 @@ export function useClipFinder() {
     const totalClips = clipsRef.current.length;
     const totalRecordings = resultsRef.current.length;
     if (totalRecordings) {
-      setResultMessage(TEXT.scanned(totalRecordings, totalClips));
+      setResultMessage(notScanned
+        ? TEXT.memoryFull(totalRecordings, notScanned)
+        : TEXT.scanned(totalRecordings, totalClips));
       setStage('results');
     } else {
       setStage('choose');
@@ -212,7 +219,8 @@ export function useClipFinder() {
       id: run.id,
       file: run.file.name,
       format: run.format,
-      message: sortedClips.length ? TEXT.found(sortedClips.length) : TEXT.none(run.minKills),
+      message: (sortedClips.length ? TEXT.found(sortedClips.length) : TEXT.none(run.minKills))
+        + (run.skippedClips ? TEXT.skippedClips(run.skippedClips) : ''),
       analysis: run.analysis,
       clips: sortedClips,
       failed: false,
@@ -269,6 +277,7 @@ export function useClipFinder() {
         workerRef.current?.postMessage({
           type: 'cut',
           clips: ordered.map(({ id, start, end }) => ({ id, start, end })),
+          store: clipSessionRef.current ? { session: clipSessionRef.current.id, run: run.id } : null,
         });
         break;
       }
@@ -277,16 +286,22 @@ export function useClipFinder() {
         const rank = ordered.findIndex((clip) => clip.id === data.id) + 1;
         const sourceClip = ordered[rank - 1];
         if (!sourceClip) break;
-        const clipBytes = data.bytes?.byteLength ?? data.bytes?.length ?? 0;
+        // A clip stored on disk (data.file) costs no memory; only in-memory clips count.
+        const clipBytes = data.file ? 0 : data.bytes?.byteLength ?? data.bytes?.length ?? 0;
         const pendingBytes = run.outputBytes || 0;
-        if (retainedClipBytesRef.current + pendingBytes + clipBytes > MAX_TOTAL_CLIP_BYTES) {
-          failCurrent('The combined clips reached ClipFinder’s 1 GiB session safety limit. Download the existing clips and refresh the page before scanning more recordings.', '');
+        if (run.memoryFull || retainedClipBytesRef.current + pendingBytes + clipBytes > MAX_TOTAL_CLIP_BYTES) {
+          // Keep the clips that fit, skip the rest of this recording, and stop the queue
+          // after it, rather than failing every recording that is still waiting.
+          run.memoryFull = true;
+          run.skippedClips = (run.skippedClips || 0) + 1;
+          if (batchRef.current) batchRef.current.memoryFull = true;
           break;
         }
         run.outputBytes = pendingBytes + clipBytes;
         const seconds = Math.round(data.end - data.start);
         const filename = `${String(rank).padStart(2, '0')} - ${sourceClip.kills} kills - ${seconds} secs (${safeFileStem(run.file.name)}).mp4`;
-        const videoFile = new File([data.bytes], filename, { type: 'video/mp4' });
+        // Wrapping the disk-backed File only renames it; the bytes stay on disk.
+        const videoFile = new File([data.file ?? data.bytes], filename, { type: 'video/mp4' });
         run.clips.push({
           rank,
           kills: sourceClip.kills,
@@ -316,6 +331,10 @@ export function useClipFinder() {
     const batch = batchRef.current;
     if (!batch) return;
 
+    if (batch.memoryFull) {
+      finishQueue(batch.files.length - batch.nextIndex);
+      return;
+    }
     if (batch.nextIndex >= batch.files.length) {
       finishQueue();
       return;
@@ -440,10 +459,7 @@ export function useClipFinder() {
 
   const saveFiles = useCallback(async (files, archiveName = 'ClipFinder clips.zip') => {
     if (!files.length) return;
-    const totalBytes = files.reduce((total, item) => total + item.size, 0);
-    if (!Number.isFinite(totalBytes) || totalBytes > MAX_BATCH_DOWNLOAD_BYTES) {
-      throw new Error('These clips are too large to combine or share safely as one batch (limit: 256 MiB). Please download them individually.');
-    }
+    // The share sheet references the clips without copying them, so it has no size cap.
     if (isMobile() && navigator.canShare?.({ files })) {
       try {
         await navigator.share({ files });
@@ -456,32 +472,55 @@ export function useClipFinder() {
       download(files[0]);
       return;
     }
-    const zip = new JSZip();
-    const usedNames = new Set();
+    // Each ZIP is built in memory, so a big batch becomes several ZIPs of at most
+    // ZIP_PART_BYTES each (a single clip larger than that gets a ZIP of its own).
+    const groups = [];
+    let group = [];
+    let groupBytes = 0;
     files.forEach((item, index) => {
-      let name = item.name;
-      if (usedNames.has(name)) {
-        const dot = name.lastIndexOf('.');
-        const stem = dot > 0 ? name.slice(0, dot) : name;
-        const extension = dot > 0 ? name.slice(dot) : '';
-        name = `${stem} (${index + 1})${extension}`;
+      if (group.length && groupBytes + item.size > ZIP_PART_BYTES) {
+        groups.push(group);
+        group = [];
+        groupBytes = 0;
       }
-      usedNames.add(name);
-      zip.file(name, item, { compression: 'STORE' });
+      group.push({ item, index });
+      groupBytes += item.size;
     });
-    const blob = await zip.generateAsync({ type: 'blob', streamFiles: true });
-    const archive = new File([blob], archiveName, { type: 'application/zip' });
-    download(archive);
+    groups.push(group);
+
+    const dot = archiveName.lastIndexOf('.');
+    const archiveStem = dot > 0 ? archiveName.slice(0, dot) : archiveName;
+    for (let part = 0; part < groups.length; part += 1) {
+      const zip = new JSZip();
+      const usedNames = new Set();
+      groups[part].forEach(({ item, index }) => {
+        let name = item.name;
+        if (usedNames.has(name)) {
+          const nameDot = name.lastIndexOf('.');
+          const stem = nameDot > 0 ? name.slice(0, nameDot) : name;
+          const extension = nameDot > 0 ? name.slice(nameDot) : '';
+          name = `${stem} (${index + 1})${extension}`;
+        }
+        usedNames.add(name);
+        zip.file(name, item, { compression: 'STORE' });
+      });
+      const blob = await zip.generateAsync({ type: 'blob', streamFiles: true });
+      const name = groups.length > 1 ? `${archiveStem} (part ${part + 1} of ${groups.length}).zip` : archiveName;
+      download(new File([blob], name, { type: 'application/zip' }));
+      // Give the browser a moment to start each download before building the next ZIP.
+      if (part < groups.length - 1) await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    }
   }, [download]);
 
   const runDownload = useCallback(async (files, archiveName) => {
     if (!files.length) return;
     setIsDownloading(true);
+    setDownloadError('');
     try {
       await saveFiles(files, archiveName);
     } catch (error) {
       console.error('Could not prepare downloads:', error);
-      setResultMessage(error?.message || 'The clips were found, but the download could not be prepared. Please try again.');
+      setDownloadError(`The download couldn’t be prepared${error?.message ? ` (${error.message})` : ''}. Try downloading the clips one at a time.`);
     } finally {
       setIsDownloading(false);
     }
@@ -528,6 +567,19 @@ export function useClipFinder() {
   }, [stage]);
 
   useEffect(() => {
+    let active = true;
+    void startClipSession().then((session) => {
+      if (active) clipSessionRef.current = session;
+      else session?.release();
+    });
+    return () => {
+      active = false;
+      clipSessionRef.current?.release();
+      clipSessionRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && runRef.current && !runRef.current.finished) {
         void requestWakeLock();
@@ -568,6 +620,7 @@ export function useClipFinder() {
     results,
     clips,
     isDownloading,
+    downloadError,
     killTimes,
     deathTimes,
     selectFile,

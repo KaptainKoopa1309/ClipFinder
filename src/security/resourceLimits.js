@@ -5,10 +5,29 @@ export const MAX_VIDEO_WIDTH = 4096;
 export const MAX_VIDEO_HEIGHT = 4096;
 export const MAX_VIDEO_PIXEL_COUNT = 9_000_000; // roughly 4K UHD / DCI 4K
 
-// The scanner copies original encoded packets into memory-backed MP4 outputs.
-export const MAX_SINGLE_CLIP_BYTES = 512 * 1024 * 1024; // 512 MiB
-export const MAX_TOTAL_CLIP_BYTES = 1024 * 1024 * 1024; // 1 GiB per scan
-export const MAX_BATCH_DOWNLOAD_BYTES = 256 * 1024 * 1024; // 256 MiB before ZIP creation
+const MiB = 1024 * 1024;
+const GiB = 1024 * MiB;
+
+/**
+ * Phones, and computers that report under 4 GB of RAM, get tighter limits.
+ * navigator.deviceMemory exists in Chrome/Edge only (pages and workers) and is capped at 8.
+ */
+export function isLowMemoryDevice() {
+  const nav = globalThis.navigator;
+  const mobile = nav?.userAgentData?.mobile ?? /Android|iPhone|iPad|Mobile/i.test(nav?.userAgent || '');
+  const memory = Number(nav?.deviceMemory);
+  return Boolean(mobile || (Number.isFinite(memory) && memory > 0 && memory < 4));
+}
+
+const LOW_MEMORY = isLowMemoryDevice();
+
+// Clips normally go to on-disk storage (engine/clipStore.js). These limits cover clips
+// that must stay in memory, e.g. in browsers without it, until the page closes.
+export const MAX_SINGLE_CLIP_BYTES = 512 * MiB;
+export const MAX_TOTAL_CLIP_BYTES = LOW_MEMORY ? 1 * GiB : 8 * GiB; // all clips kept this session
+// "Download all" builds each ZIP in memory, so large batches are split into several ZIPs.
+// JSZip cannot write ZIP64, which also keeps every part well under the 4 GiB ZIP limit.
+export const ZIP_PART_BYTES = LOW_MEMORY ? 256 * MiB : 1 * GiB;
 export const MAX_SCAN_WORKERS = 4;
 
 export function validateVideoFile(file) {

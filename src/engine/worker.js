@@ -9,6 +9,7 @@ import {
   MAX_TOTAL_CLIP_BYTES,
   validateVideoFile,
 } from '../security/resourceLimits.js';
+import { openRunFolder, storeClip } from './clipStore.js';
 
 let current = null;
 let stopRequested = false;
@@ -317,9 +318,13 @@ async function finishLive(v, rules, timings, lap, P, feed, result, data) {
   });
 }
 
-async function runCut({ clips }) {
+async function runCut({ clips, store = null }) {
   if (!current) throw new Error('Scan a video first.');
   if (!Array.isArray(clips) || clips.length > 100) throw new Error('The scan produced an unsupported number of clips.');
+  // With on-disk storage only one clip is in memory at a time, so the memory total
+  // applies only to clips that had to stay in memory.
+  const folder = await openRunFolder(store?.session, store?.run);
+  if (store && !folder) log('Clip storage is unavailable in this browser; keeping clips in memory.');
   let estimatedTotal = 0;
   let actualTotal = 0;
   const bitrateBytesPerSecond = Number(current.info.bitrate) > 0
@@ -338,8 +343,8 @@ async function runCut({ clips }) {
     if (estimate > MAX_SINGLE_CLIP_BYTES) {
       throw new Error('A generated clip would exceed the 512 MiB per-clip memory safety limit.');
     }
-    if (estimatedTotal + estimate > MAX_TOTAL_CLIP_BYTES) {
-      throw new Error('The selected clips would exceed the 1 GiB per-scan memory safety limit. Download fewer clips by scanning a shorter recording.');
+    if (!folder && estimatedTotal + estimate > MAX_TOTAL_CLIP_BYTES) {
+      throw new Error(`The clips from this recording would exceed ClipFinder’s ${MAX_TOTAL_CLIP_BYTES / 1024 ** 3} GiB memory safety limit. Try a shorter recording.`);
     }
     estimatedTotal += estimate;
 
@@ -347,7 +352,24 @@ async function runCut({ clips }) {
     const cut = await cutClip(current, clip.start, clip.end);
     const bytes = cut.bytes;
     const byteLength = bytes?.byteLength ?? bytes?.length ?? 0;
-    if (!byteLength || byteLength > MAX_SINGLE_CLIP_BYTES || actualTotal + byteLength > MAX_TOTAL_CLIP_BYTES) {
+    if (!byteLength || byteLength > MAX_SINGLE_CLIP_BYTES) {
+      throw new Error('Clip output exceeded the per-clip memory safety limit. Try a shorter recording.');
+    }
+
+    let file = null;
+    if (folder) {
+      try {
+        file = await storeClip(folder, `${clip.id}.mp4`, bytes);
+      } catch (error) {
+        // Usually the storage quota is full. This clip and later ones stay in memory.
+        log(`Could not store clip ${clip.id} on disk (${error.name || error.message}); keeping it in memory.`);
+      }
+    }
+    if (file) {
+      send('clip', { id: clip.id, file, size: byteLength, start: cut.start, end: cut.end, ms: performance.now() - started });
+      continue;
+    }
+    if (actualTotal + byteLength > MAX_TOTAL_CLIP_BYTES) {
       throw new Error('Clip output exceeded the memory safety limit. Try a shorter recording or fewer clips.');
     }
     actualTotal += byteLength;

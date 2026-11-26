@@ -84,6 +84,13 @@ export default function ResultsPanel({ finder, onReset }) {
         ))}
       </div>
 
+      {finder.downloadError && (
+        <div role="alert" className="mt-5 flex items-start gap-2 rounded-md border border-[#725d36] bg-[#211b10] p-3 text-xs leading-5 text-[#e9cb8d]">
+          <ShieldAlert size={16} className="mt-0.5 shrink-0" />
+          {finder.downloadError}
+        </div>
+      )}
+
       <div className="mt-5 flex flex-col gap-2.5 border-t border-line pt-4 min-[400px]:gap-3 min-[400px]:pt-5 sm:flex-row">
         {allClips.length > 1 && (
           <button
