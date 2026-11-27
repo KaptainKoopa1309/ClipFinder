@@ -1,6 +1,7 @@
 
 import {
   ArrowUpRight,
+  Coffee,
   Github,
   Instagram,
   Lightbulb,
@@ -8,7 +9,7 @@ import {
 import { Link } from 'react-router-dom';
 
 const GITHUB_URL = 'https://github.com/KaptainKoopa1309/ClipFinder';
-const PATREON_URL = '';
+const BUY_ME_A_COFFEE_URL = 'https://buymeacoffee.com/kaptainkoopa';
 
 // Developer social links
 const DEVELOPERS = [
@@ -40,22 +41,7 @@ function XIcon({ size = 15, className = '' }) {
   );
 }
 
-// Patreon mark
-function PatreonMark({ size = 20, className = '' }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      className={className}
-      aria-hidden="true"
-    >
-      <rect x="3" y="2" width="5.5" height="20" rx="2" />
-      <circle cx="16" cy="8" r="6" />
-    </svg>
-  );
-}
+// Buy Me a Coffee icon is provided by lucide-react's Coffee component.
 
 // Custom developer code icon
 // Each SVG path animates independently.
@@ -265,18 +251,15 @@ export function ReachUsOutCard() {
   );
 }
 
-// Patreon card
-export function PatreonCard() {
+// Buy Me a Coffee card
+export function BuyMeACoffeeCard() {
   return (
-    <CardShell className="border-[#3b2a36] bg-[linear-gradient(145deg,#1b1219,#0e1113_70%)]">
-      <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg border border-[#593549] bg-[#f472b6]/10 text-[#f472b6]">
-        <PatreonMark
-          size={20}
-          className="patreon-p-hover"
-        />
+    <CardShell className="border-[#294331] bg-[linear-gradient(145deg,#101a13,#0e1113_70%)]">
+      <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg border border-[#31563b] bg-green/10 text-green">
+        <Coffee size={20} className="community-hover-icon" />
       </div>
 
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f4a4cb]">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-green-text">
         Support development
       </p>
 
@@ -284,14 +267,14 @@ export function PatreonCard() {
         ClipFinder is free to use. Support helps fund improvements, testing, and maintenance.
       </p>
 
-      {PATREON_URL ? (
+      {BUY_ME_A_COFFEE_URL ? (
         <a
-          href={PATREON_URL}
+          href={BUY_ME_A_COFFEE_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-5 inline-flex items-center gap-2 rounded-md bg-[#f472b6] px-3.5 py-2.5 text-sm font-bold text-[#210c18] transition-colors hover:bg-[#f9a8d4]"
+          className="mt-5 inline-flex items-center gap-2 rounded-md bg-green px-3.5 py-2.5 text-sm font-bold text-[#041209] transition-colors hover:bg-green-dark"
         >
-          Support on Patreon
+          Buy Me a Coffee
 
           <ArrowUpRight
             size={15}
@@ -300,15 +283,18 @@ export function PatreonCard() {
         </a>
       ) : (
         <span
-          className="mt-5 inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-[#59404f] px-3.5 py-2.5 text-sm font-semibold text-[#d5a8c0]"
-          title="Add the creator's Patreon URL in CommunityCards.jsx to enable this link."
+          className="mt-5 inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-[#31563b] px-3.5 py-2.5 text-sm font-semibold text-green-text"
+          title="Add the creator's Buy Me a Coffee URL in CommunityCards.jsx to enable this link."
         >
-          Patreon link coming soon
+          Buy Me a Coffee link coming soon
         </span>
       )}
     </CardShell>
   );
 }
+
+// Backward compatibility with existing HomePage imports
+export { BuyMeACoffeeCard as PatreonCard };
 
 // Mobile community layout
 export function CommunityCardsMobile() {
@@ -350,29 +336,26 @@ export function CommunityCardsMobile() {
         </span>
       </a>
 
-      {/* Patreon */}
-      <div className="flex min-w-0 flex-col rounded-xl border border-[#3b2a36] bg-[linear-gradient(145deg,#1b1219,#0e1113_70%)] p-3 min-[420px]:p-3.5">
-        <span className="mb-3 flex h-8 w-8 items-center justify-center rounded-lg border border-[#593549] bg-[#f472b6]/10 text-[#f472b6]">
-          <PatreonMark
-            size={17}
-            className="patreon-p-hover"
-          />
+      {/* Buy Me a Coffee */}
+      <div className="flex min-w-0 flex-col rounded-xl border border-[#294331] bg-[linear-gradient(145deg,#101a13,#0e1113_70%)] p-3 min-[420px]:p-3.5">
+        <span className="mb-3 flex h-8 w-8 items-center justify-center rounded-lg border border-[#31563b] bg-green/10 text-green">
+          <Coffee size={17} className="community-hover-icon" />
         </span>
 
-        <span className="text-[9px] font-semibold uppercase tracking-[0.13em] text-[#f4a4cb] min-[420px]:text-[10px]">
+        <span className="text-[9px] font-semibold uppercase tracking-[0.13em] text-green-text min-[420px]:text-[10px]">
           Support dev
         </span>
 
         <span className="mt-1 text-sm font-semibold leading-5 text-white">
-          Patreon
+          Buy Me a Coffee
         </span>
 
-        {PATREON_URL ? (
+        {BUY_ME_A_COFFEE_URL ? (
           <a
-            href={PATREON_URL}
+            href={BUY_ME_A_COFFEE_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-1.5 flex items-center gap-1 text-[11px] font-medium text-[#f4a4cb]"
+            className="mt-1.5 flex items-center gap-1 text-[11px] font-medium text-green-text"
           >
             Support us
 
