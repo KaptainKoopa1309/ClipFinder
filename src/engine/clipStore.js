@@ -53,6 +53,25 @@ async function removeClosedSessions(ownId) {
   }
 }
 
+/**
+ * Page side. Deletes the stored clips of the given recordings (run ids) from this tab's
+ * session folder. Only the named run folders are removed, so a scan that has already
+ * started writing newer runs is never touched. Failing here only leaves old files behind;
+ * they are deleted with the session folder once the tab closes.
+ */
+export async function removeRunFolders(session, runs) {
+  if (!session || !runs?.length || !navigator.storage?.getDirectory) return;
+  try {
+    const store = await storeRoot();
+    const folder = await store.getDirectoryHandle(session.id);
+    for (const run of runs) {
+      await folder.removeEntry(String(run), { recursive: true }).catch(() => {});
+    }
+  } catch {
+    // No folder yet (nothing was stored on disk) or storage is unavailable.
+  }
+}
+
 /** Worker side. The folder for one recording's clips, or null if storage isn't usable. */
 export async function openRunFolder(session, run) {
   if (!session || typeof session !== 'string' || !Number.isSafeInteger(run)) return null;

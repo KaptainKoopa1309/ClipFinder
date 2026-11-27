@@ -7,7 +7,7 @@ import {
   validateVideoFile,
   safeFileStem,
 } from './security/resourceLimits.js';
-import { startClipSession } from './engine/clipStore.js';
+import { removeRunFolders, startClipSession } from './engine/clipStore.js';
 
 const TEXT = {
   pick: 'Select Match Recording',
@@ -37,7 +37,7 @@ const TEXT = {
   overallInfo: (count, sort) => `${count === 1 ? '1 clip' : `${count} clips`}, ${SORTS[sort].label}`,
   overallClipInfo: (seconds, start, file) => `${seconds} s long, starts at ${start} in ${file}`,
   skippedClips: (count) => ` ${count === 1 ? '1 more clip was' : `${count} more clips were`} skipped because ClipFinder ran out of room for clips on this device.`,
-  memoryFull: (scanned, left) => `ClipFinder ran out of room for clips on this device after ${scanned === 1 ? '1 recording' : `${scanned} recordings`}. ${left === 1 ? '1 recording was' : `${left} recordings were`} not scanned. Download the clips you want, refresh the page, and scan the rest.`,
+  memoryFull: (scanned, left) => `ClipFinder ran out of room for clips on this device after ${scanned === 1 ? '1 recording' : `${scanned} recordings`}. ${left === 1 ? '1 recording was' : `${left} recordings were`} not scanned. Download the clips you want, then scan the rest. A new scan clears these clips.`,
 };
 
 const SORTS = {
@@ -165,6 +165,21 @@ export function useClipFinder() {
     const nextClips = [...clipsRef.current, ...result.clips];
     clipsRef.current = nextClips;
     setClips(nextClips);
+  }, []);
+
+  // Forget every recording scanned so far: its results, its clip URLs, the clip bytes
+  // counted against the memory budget, and the clip files kept in browser storage.
+  const clearResults = useCallback(() => {
+    const oldResults = resultsRef.current;
+    clipsRef.current.forEach((clip) => URL.revokeObjectURL(clip.url));
+    resultsRef.current = [];
+    clipsRef.current = [];
+    retainedClipBytesRef.current = 0;
+    setResults([]);
+    setClips([]);
+    setAnalysis(null);
+    setDownloadError('');
+    void removeRunFolders(clipSessionRef.current, oldResults.map((result) => result.id));
   }, []);
 
   const finishQueue = useCallback((notScanned = 0) => {
@@ -395,12 +410,14 @@ export function useClipFinder() {
   const startScan = useCallback(async () => {
     if (!selectedFiles.length || !supported || stage === 'scanning') return;
 
+    // Every scan starts from an empty result list: clips from earlier recordings are dropped.
+    clearResults();
     const batch = {
       files: [...selectedFiles],
       nextIndex: 0,
       format,
       minKills,
-      completedBefore: resultsRef.current.length,
+      completedBefore: 0,
     };
     batchRef.current = batch;
     setSelectedFiles([]);
@@ -411,7 +428,7 @@ export function useClipFinder() {
     window.addEventListener('beforeunload', warnOnLeave);
     await requestWakeLock();
     if (batchRef.current === batch) void scanNextRef.current?.();
-  }, [format, minKills, requestWakeLock, selectedFiles, setScanProgress, stage, supported]);
+  }, [clearResults, format, minKills, requestWakeLock, selectedFiles, setScanProgress, stage, supported]);
 
   const cancelScan = useCallback(() => {
     const activeRun = runRef.current;
@@ -430,12 +447,13 @@ export function useClipFinder() {
     }
   }, [stopWorker]);
 
-  // The existing “Scan another” action returns to the picker but deliberately keeps
-  // completed recordings and their clip URLs, so the next scan joins the same results.
+  // “Scan another” returns to the picker and drops every scanned recording and its clips,
+  // so the next scan shows only the recordings chosen for it.
   const reset = useCallback(() => {
     if (stage === 'scanning') return;
     batchRef.current = null;
     runRef.current = null;
+    clearResults();
     setSelectedFiles([]);
     setResultMessage('');
     setQueueText('');
@@ -444,7 +462,7 @@ export function useClipFinder() {
     setStatus(TEXT.starting);
     setEta('');
     setStage('choose');
-  }, [stage]);
+  }, [clearResults, stage]);
 
   const download = useCallback((targetFile) => {
     const url = URL.createObjectURL(targetFile);
